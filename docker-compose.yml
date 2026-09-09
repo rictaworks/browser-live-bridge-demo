@@ -1,0 +1,47 @@
+services:
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./src/frontend:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_next_cache:/app/.next
+    environment:
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:3001
+      - NEXT_PUBLIC_RELAY_URL=http://localhost:3002
+
+  backend:
+    build:
+      context: ./src/backend
+      dockerfile: Dockerfile
+    command: bash -c "bin/rails db:prepare && bin/rails server -b 0.0.0.0 -p 3001"
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./src/backend:/app
+      - backend_bundle:/usr/local/bundle
+    environment:
+      - RAILS_ENV=development
+      # 本番相当のシークレットは環境変数で渡す（.envはコミット対象外。詳細は.env.exampleを参照）
+      - RAILS_MASTER_KEY=${RAILS_MASTER_KEY:-}
+
+  relay:
+    build:
+      context: ./src/relay
+      dockerfile: Dockerfile
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./src/relay:/app
+      - relay_go_cache:/go
+    environment:
+      - GIN_MODE=debug
+
+volumes:
+  frontend_node_modules:
+  frontend_next_cache:
+  backend_bundle:
+  relay_go_cache:

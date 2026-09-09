@@ -1,0 +1,10 @@
+# シークレットはイメージに焼き込まず、RAILS_MASTER_KEY環境変数で渡す
+config/master.key
+
+.git
+log/*
+tmp/*
+!log/.keep
+!tmp/.keep
+storage/*.sqlite3
+storage/*.sqlite3-*

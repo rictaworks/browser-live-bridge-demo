@@ -1,0 +1,17 @@
+{
+  "name": "browser-live-bridge-demo",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "forwardPorts": [3000, 3001, 3002],
+  "portsAttributes": {
+    "3000": { "label": "frontend (Next.js)" },
+    "3001": { "label": "backend (Rails)" },
+    "3002": { "label": "relay (Gin)" }
+  },
+  "postStartCommand": "docker compose version",
+  "remoteUser": "vscode"
+}
