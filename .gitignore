@@ -31,6 +31,16 @@ ENV/
 !/tmp/.keep
 .byebug_history
 /public/assets
+src/backend/log/*
+src/backend/tmp/*
+!src/backend/log/.keep
+!src/backend/tmp/.keep
+src/backend/public/assets
+src/backend/config/master.key
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
 
 # --- Node / Next.js / Vercel ---
 node_modules/
@@ -46,6 +56,10 @@ venv/
 
 # --- Go ---
 /bin/
+src/relay/bin/
+src/relay/tmp/
+src/relay/*.exe
+src/relay/relay
 
 # --- Rust / Tauri ---
 target/

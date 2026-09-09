@@ -67,4 +67,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## コマンド
 
-**実装未着手（2026-09-09時点でrequirements.mdのみ）。** ビルド・lint・テストコマンドは最初のissue実装時にここへ追記すること。開発環境はWSL2 devコンテナ（docker compose）を予定している（questboard・x-follower-gate・living-site-evolver と同様のパターン）。
+開発環境はWSL2上のdocker compose（3層まとめて起動）。すべてコンテナ経由で実行し、ホストにNode.js・Ruby・Goを個別インストールする必要はない。
+
+### 共通
+
+```sh
+docker compose up          # 3層まとめて起動（frontend:3000 / backend:3001 / relay:3002）
+docker compose build       # 3層まとめてビルド
+docker compose down        # 停止
+```
+
+### フロントエンド（Next.js, src/frontend）
+
+```sh
+docker compose run --rm frontend npm run lint
+docker compose run --rm frontend npm run build
+```
+
+フロントの動作確認はJestではなく、curl・wget --mirror・playwrightで行う（上記「開発フロー」節のとおり）。例: `curl http://localhost:3000/api/health`
+
+### アプリケーション（Rails, src/backend）
+
+```sh
+docker compose run --rm backend bundle exec rubocop
+docker compose run --rm backend bundle exec rspec
+```
+
+### 中継（Gin, src/relay）
+
+```sh
+docker compose run --rm relay go vet ./...
+docker compose run --rm relay go test ./...
+docker compose run --rm relay go build -o bin/relay .
+```

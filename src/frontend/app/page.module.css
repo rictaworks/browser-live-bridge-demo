@@ -1,0 +1,7 @@
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 48px;
+  font-family: var(--font-geist-sans);
+}
