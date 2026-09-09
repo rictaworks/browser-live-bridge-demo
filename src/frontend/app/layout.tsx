@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { config as fontAwesomeConfig } from "@fortawesome/fontawesome-svg-core";
+import "@fortawesome/fontawesome-svg-core/styles.css";
 import "./globals.css";
+
+// Next.jsはCSSの挿入順序を制御するため、FontAwesomeの自動CSS挿入は無効化し、
+// 上記のスタイルシートを明示的にインポートする（表示のちらつき防止）。
+fontAwesomeConfig.autoAddCss = false;
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
