@@ -20,11 +20,11 @@ type noopBackend struct{}
 func (noopBackend) Verify(context.Context, string, string) (backendclient.VerifyResult, error) {
 	return backendclient.VerifyResult{}, nil
 }
-func (noopBackend) ReportHealth(context.Context, string, backendclient.HealthSample) error {
+func (noopBackend) ReportHealth(context.Context, string, string, backendclient.HealthSample) error {
 	return nil
 }
-func (noopBackend) ReportEvent(context.Context, string, string, string) error { return nil }
-func (noopBackend) Finish(context.Context, string, string) error              { return nil }
+func (noopBackend) ReportEvent(context.Context, string, string, string, string) error { return nil }
+func (noopBackend) Finish(context.Context, string, string, string) error              { return nil }
 
 var _ backendclient.Client = noopBackend{}
 

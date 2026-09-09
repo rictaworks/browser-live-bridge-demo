@@ -192,7 +192,7 @@ export default function StudioPage() {
       )}
 
       <div className={styles.grid}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+        <div className={styles.column}>
           <section className={styles.section}>
             <h2 className={styles.sectionTitle}>プレビュー</h2>
             <div className={styles.previewWrap}>
@@ -338,7 +338,7 @@ export default function StudioPage() {
           </section>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+        <div className={styles.column}>
           <section className={styles.section}>
             <h2 className={styles.sectionTitle}>視聴情報</h2>
             <div className={styles.audienceRow}>

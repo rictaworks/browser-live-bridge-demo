@@ -38,6 +38,7 @@ RSpec.describe "Internal::Broadcasts", type: :request do
 
       post "/internal/broadcasts/#{created['id']}/health_samples",
            params: {
+             broadcast_token: created["broadcast_token"],
              queue_ms: 120,
              sent_bitrate_kbps: 2200,
              target_bitrate_kbps: 2500,
@@ -53,9 +54,26 @@ RSpec.describe "Internal::Broadcasts", type: :request do
     it "必須項目が無ければ422になること" do
       created = create_broadcast!
 
-      post "/internal/broadcasts/#{created['id']}/health_samples", params: { queue_ms: 100 }, as: :json
+      post "/internal/broadcasts/#{created['id']}/health_samples",
+           params: { broadcast_token: created["broadcast_token"], queue_ms: 100 }, as: :json
 
       expect(response).to have_http_status(:unprocessable_content)
+    end
+
+    it "broadcast_tokenが一致しなければ404になること（多層防御：id推測だけでは書き込めない）" do
+      created = create_broadcast!
+
+      post "/internal/broadcasts/#{created['id']}/health_samples",
+           params: {
+             broadcast_token: "not-the-real-token",
+             queue_ms: 120,
+             sent_bitrate_kbps: 2200,
+             target_bitrate_kbps: 2500,
+             state: "live"
+           }, as: :json
+
+      expect(response).to have_http_status(:not_found)
+      expect(HealthSample.where(broadcast_id: created["id"]).count).to eq(0)
     end
   end
 
@@ -64,10 +82,19 @@ RSpec.describe "Internal::Broadcasts", type: :request do
       created = create_broadcast!
 
       post "/internal/broadcasts/#{created['id']}/events",
-           params: { event_type: "reconnecting", detail: "connection lost" }, as: :json
+           params: { broadcast_token: created["broadcast_token"], event_type: "reconnecting", detail: "connection lost" }, as: :json
 
       expect(response).to have_http_status(:created)
       expect(BroadcastEvent.where(broadcast_id: created["id"], event_type: "reconnecting").count).to eq(1)
+    end
+
+    it "broadcast_tokenが一致しなければ404になること" do
+      created = create_broadcast!
+
+      post "/internal/broadcasts/#{created['id']}/events",
+           params: { broadcast_token: "not-the-real-token", event_type: "reconnecting" }, as: :json
+
+      expect(response).to have_http_status(:not_found)
     end
   end
 
@@ -77,7 +104,8 @@ RSpec.describe "Internal::Broadcasts", type: :request do
       id = created["id"]
       expect(BroadcastLock.exists?(broadcast_id: id)).to be true
 
-      post "/internal/broadcasts/#{id}/finish", params: { reason: "relay_disconnected" }, as: :json
+      post "/internal/broadcasts/#{id}/finish",
+           params: { broadcast_token: created["broadcast_token"], reason: "relay_disconnected" }, as: :json
 
       expect(response).to have_http_status(:ok)
       broadcast = Broadcast.find(id)
@@ -90,10 +118,20 @@ RSpec.describe "Internal::Broadcasts", type: :request do
       created = create_broadcast!
       id = created["id"]
 
-      post "/internal/broadcasts/#{id}/finish", as: :json
-      post "/internal/broadcasts/#{id}/finish", as: :json
+      post "/internal/broadcasts/#{id}/finish", params: { broadcast_token: created["broadcast_token"] }, as: :json
+      post "/internal/broadcasts/#{id}/finish", params: { broadcast_token: created["broadcast_token"] }, as: :json
 
       expect(response).to have_http_status(:ok)
+    end
+
+    it "broadcast_tokenが一致しなければ404になり、配信は終了しないこと" do
+      created = create_broadcast!
+      id = created["id"]
+
+      post "/internal/broadcasts/#{id}/finish", params: { broadcast_token: "not-the-real-token" }, as: :json
+
+      expect(response).to have_http_status(:not_found)
+      expect(Broadcast.find(id).state).not_to eq("ended")
     end
   end
 end

@@ -19,9 +19,9 @@ Rails.application.config.after_initialize do
       sleep 10
 
       begin
-        BroadcastLockService.release_stale!
+        ReclaimStaleLocksJob.perform_now
       rescue StandardError => e
-        Rails.logger.error("[BroadcastLockService] release_stale! failed: #{e.class}: #{e.message}")
+        Rails.logger.error("[ReclaimStaleLocksJob] failed: #{e.class}: #{e.message}")
       end
 
       begin

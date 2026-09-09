@@ -23,14 +23,14 @@ type fakeBackend struct {
 	mu          sync.Mutex
 	verifyValid bool
 	broadcastID string
-	finishCh    chan struct{ broadcastID, reason string }
+	finishCh    chan struct{ broadcastID, broadcastToken, reason string }
 }
 
 func newFakeBackend(valid bool, broadcastID string) *fakeBackend {
 	return &fakeBackend{
 		verifyValid: valid,
 		broadcastID: broadcastID,
-		finishCh:    make(chan struct{ broadcastID, reason string }, 8),
+		finishCh:    make(chan struct{ broadcastID, broadcastToken, reason string }, 8),
 	}
 }
 
@@ -40,16 +40,16 @@ func (f *fakeBackend) Verify(_ context.Context, _, _ string) (backendclient.Veri
 	return backendclient.VerifyResult{Valid: f.verifyValid, BroadcastID: f.broadcastID}, nil
 }
 
-func (f *fakeBackend) ReportHealth(context.Context, string, backendclient.HealthSample) error {
+func (f *fakeBackend) ReportHealth(context.Context, string, string, backendclient.HealthSample) error {
 	return nil
 }
 
-func (f *fakeBackend) ReportEvent(context.Context, string, string, string) error {
+func (f *fakeBackend) ReportEvent(context.Context, string, string, string, string) error {
 	return nil
 }
 
-func (f *fakeBackend) Finish(_ context.Context, broadcastID, reason string) error {
-	f.finishCh <- struct{ broadcastID, reason string }{broadcastID, reason}
+func (f *fakeBackend) Finish(_ context.Context, broadcastID, broadcastToken, reason string) error {
+	f.finishCh <- struct{ broadcastID, broadcastToken, reason string }{broadcastID, broadcastToken, reason}
 	return nil
 }
 
