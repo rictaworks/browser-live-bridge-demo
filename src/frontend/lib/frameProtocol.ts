@@ -8,10 +8,12 @@
 // 種別: 映像設定・映像・音声設定・音声・制御
 // 属性: bit0 = キーフレームか否か
 //
-// 制御メッセージの本体はUTF-8のJSONとしてシリアライズする（開始通知・
-// 状態報告・終了通知・受領応答・キーフレーム要求・抑制指示・致命通知）。
-// バイナリ本体をさらにアドホックな独自バイナリで定義するよりも堅牢で
-// 拡張しやすいと判断した（デモ版のためJSON化による多少のサイズ増は許容する）。
+// 制御メッセージの本体は、中継層（src/relay/internal/protocol/control.go）と
+// バイト単位で一致する独自バイナリ形式でシリアライズする（先頭1バイトの種別
+// コード + 型ごとの固定/可変長フィールド）。中継層側の実装がチーム間契約と
+// なっており、双方をJSON等の別形式にすると相互に本文を認識できず、開始通知
+// そのものが破棄されてしまうため（21節の逸脱フレーム破棄規定により無応答で
+// 落ちる）、この形式に統一している。
 
 import type { ControlMessageType, FrameType } from "./types";
 
@@ -198,45 +200,178 @@ const CONTROL_TYPES: ControlMessageType[] = [
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+// 制御メッセージ種別コード（src/relay/internal/protocol/control.goのControlTypeと一致させる）。
+const CONTROL_TYPE_CODES: Record<ControlMessageType, number> = {
+  start: 0x01,
+  status: 0x02,
+  end: 0x03,
+  ack: 0x81,
+  keyframe_request: 0x82,
+  throttle: 0x83,
+  fatal: 0x84,
+};
+
+const CONTROL_TYPE_BY_CODE: Record<number, ControlMessageType> = Object.fromEntries(
+  Object.entries(CONTROL_TYPE_CODES).map(([k, v]) => [v, k as ControlMessageType]),
+) as Record<number, ControlMessageType>;
+
+function writeControlString(chunks: Uint8Array[], value: string): void {
+  const encoded = textEncoder.encode(value);
+  const lengthPrefix = new Uint8Array(2);
+  new DataView(lengthPrefix.buffer).setUint16(0, encoded.byteLength, false);
+  chunks.push(lengthPrefix, encoded);
+}
+
+function writeControlUint32(chunks: Uint8Array[], value: number): void {
+  const buf = new Uint8Array(4);
+  new DataView(buf.buffer).setUint32(0, value, false);
+  chunks.push(buf);
+}
+
+function concatChunks(typeCode: number, chunks: Uint8Array[]): Uint8Array {
+  const total = 1 + chunks.reduce((sum, c) => sum + c.byteLength, 0);
+  const out = new Uint8Array(total);
+  out[0] = typeCode;
+  let offset = 1;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+function readControlString(body: Uint8Array, offset: number): [string, number] {
+  if (offset + 2 > body.byteLength) {
+    throw new FrameDecodeError("control body truncated (string length)");
+  }
+  const view = new DataView(body.buffer, body.byteOffset, body.byteLength);
+  const length = view.getUint16(offset, false);
+  offset += 2;
+  if (offset + length > body.byteLength) {
+    throw new FrameDecodeError("control body truncated (string content)");
+  }
+  return [textDecoder.decode(body.slice(offset, offset + length)), offset + length];
+}
+
 /**
- * 制御メッセージをフレーム化してバイナリへエンコードする。
+ * 制御メッセージをフレーム化してバイナリへエンコードする
+ * （中継層のバイナリTLV形式と一致させる。上記コメント参照）。
  */
 export function encodeControlMessage(
   message: ControlMessage,
   timestampUs: number,
 ): Uint8Array {
-  const body = textEncoder.encode(JSON.stringify(message));
-  return encodeFrame({
-    type: "control",
-    keyframe: false,
-    timestampUs,
-    body,
-  });
+  const typeCode = CONTROL_TYPE_CODES[message.type];
+  const chunks: Uint8Array[] = [];
+  let body: Uint8Array;
+
+  switch (message.type) {
+    case "start":
+      writeControlString(chunks, message.sessionKey);
+      writeControlString(chunks, message.broadcastToken);
+      writeControlString(chunks, JSON.stringify(message.profile));
+      body = concatChunks(typeCode, chunks);
+      break;
+    case "status":
+      writeControlUint32(chunks, message.queueDelayMs);
+      writeControlUint32(chunks, message.droppedFrames); // 破棄されるのは映像のみ（7節）
+      writeControlUint32(chunks, 0); // 音声フレームは破棄対象外のため常に0
+      writeControlUint32(chunks, message.targetBitrateKbps);
+      body = concatChunks(typeCode, chunks);
+      break;
+    case "end":
+      writeControlString(chunks, message.reason);
+      body = concatChunks(typeCode, chunks);
+      break;
+    case "ack": {
+      const buf = new Uint8Array(8);
+      new DataView(buf.buffer).setBigUint64(0, BigInt(Math.max(0, Math.round(message.receivedAtUs))), false);
+      body = concatChunks(typeCode, [buf]);
+      break;
+    }
+    case "keyframe_request":
+      body = concatChunks(typeCode, []);
+      break;
+    case "throttle":
+      writeControlUint32(chunks, message.targetBitrateKbps);
+      body = concatChunks(typeCode, chunks);
+      break;
+    case "fatal":
+      writeControlString(chunks, message.reason);
+      body = concatChunks(typeCode, chunks);
+      break;
+  }
+
+  return encodeFrame({ type: "control", keyframe: false, timestampUs, body });
 }
 
 /**
- * 制御フレームの本体をControlMessageへデコードする。
+ * 制御フレームの本体をControlMessageへデコードする
+ * （中継層のバイナリTLV形式と一致させる。上記コメント参照）。
  */
 export function decodeControlMessage(frame: MediaFrame): ControlMessage {
   if (frame.type !== "control") {
     throw new FrameDecodeError("not a control frame");
   }
-  const json = textDecoder.decode(frame.body);
-  let parsed: unknown;
+  const body = frame.body;
+  if (body.byteLength < 1) {
+    throw new FrameDecodeError("empty control body");
+  }
+  const typeCode = body[0];
+  const type = CONTROL_TYPE_BY_CODE[typeCode];
+  if (type === undefined || !CONTROL_TYPES.includes(type)) {
+    throw new FrameDecodeError(`unknown control message type code: ${typeCode}`);
+  }
+
   try {
-    parsed = JSON.parse(json);
-  } catch {
-    throw new FrameDecodeError("control frame body is not valid JSON");
+    switch (type) {
+      case "start": {
+        const [sessionKey, off1] = readControlString(body, 1);
+        const [broadcastToken, off2] = readControlString(body, off1);
+        const [profileJson] = readControlString(body, off2);
+        return { type: "start", sessionKey, broadcastToken, profile: JSON.parse(profileJson) as Record<string, unknown> };
+      }
+      case "status": {
+        const view = new DataView(body.buffer, body.byteOffset, body.byteLength);
+        if (body.byteLength < 17) {
+          throw new FrameDecodeError("control body truncated (status)");
+        }
+        return {
+          type: "status",
+          queueDelayMs: view.getUint32(1, false),
+          droppedFrames: view.getUint32(5, false),
+          targetBitrateKbps: view.getUint32(13, false),
+        };
+      }
+      case "end": {
+        const [reason] = readControlString(body, 1);
+        return { type: "end", reason };
+      }
+      case "ack": {
+        if (body.byteLength < 9) {
+          throw new FrameDecodeError("control body truncated (ack)");
+        }
+        const view = new DataView(body.buffer, body.byteOffset, body.byteLength);
+        return { type: "ack", receivedAtUs: Number(view.getBigUint64(1, false)) };
+      }
+      case "keyframe_request":
+        return { type: "keyframe_request" };
+      case "throttle": {
+        if (body.byteLength < 5) {
+          throw new FrameDecodeError("control body truncated (throttle)");
+        }
+        const view = new DataView(body.buffer, body.byteOffset, body.byteLength);
+        return { type: "throttle", targetBitrateKbps: view.getUint32(1, false) };
+      }
+      case "fatal": {
+        const [reason] = readControlString(body, 1);
+        return { type: "fatal", reason };
+      }
+    }
+  } catch (err) {
+    if (err instanceof FrameDecodeError) {
+      throw err;
+    }
+    throw new FrameDecodeError(`failed to decode control message: ${String(err)}`);
   }
-
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !("type" in parsed) ||
-    !CONTROL_TYPES.includes((parsed as { type: string }).type as ControlMessageType)
-  ) {
-    throw new FrameDecodeError("unknown control message type");
-  }
-
-  return parsed as ControlMessage;
 }

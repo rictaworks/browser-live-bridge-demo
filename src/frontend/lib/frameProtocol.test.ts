@@ -161,8 +161,8 @@ describe("frameProtocol: 制御メッセージ", () => {
     );
   });
 
-  it("不正なJSON本文の制御フレームは拒否する", () => {
-    const body = new TextEncoder().encode("not json");
+  it("未知の種別コードの制御フレームは拒否する（中継層のバイナリTLV形式との整合）", () => {
+    const body = new Uint8Array([0xff]);
     const encoded = encodeFrame({
       type: "control",
       keyframe: false,
@@ -172,5 +172,66 @@ describe("frameProtocol: 制御メッセージ", () => {
     expect(() => decodeControlMessage(decodeFrame(encoded))).toThrow(
       FrameDecodeError,
     );
+  });
+
+  it("空の制御フレーム本体は拒否する", () => {
+    const encoded = encodeFrame({
+      type: "control",
+      keyframe: false,
+      timestampUs: 1,
+      body: new Uint8Array(),
+    });
+    expect(() => decodeControlMessage(decodeFrame(encoded))).toThrow(
+      FrameDecodeError,
+    );
+  });
+
+  it("状態報告（status）を往復できる。音声フレームは破棄対象外のためdroppedAudioFramesは常に0で送る", () => {
+    const encoded = encodeControlMessage(
+      { type: "status", queueDelayMs: 1500, droppedFrames: 3, targetBitrateKbps: 2000 },
+      3000,
+    );
+    const message = decodeControlMessage(decodeFrame(encoded));
+    expect(message).toEqual({ type: "status", queueDelayMs: 1500, droppedFrames: 3, targetBitrateKbps: 2000 });
+  });
+
+  it("終了通知（end）・受領応答（ack）・キーフレーム要求・致命通知（fatal）を往復できる", () => {
+    expect(
+      decodeControlMessage(decodeFrame(encodeControlMessage({ type: "end", reason: "user_stopped" }, 1))),
+    ).toEqual({ type: "end", reason: "user_stopped" });
+    expect(
+      decodeControlMessage(decodeFrame(encodeControlMessage({ type: "ack", receivedAtUs: 123456 }, 1))),
+    ).toEqual({ type: "ack", receivedAtUs: 123456 });
+    expect(
+      decodeControlMessage(decodeFrame(encodeControlMessage({ type: "keyframe_request" }, 1))),
+    ).toEqual({ type: "keyframe_request" });
+    expect(
+      decodeControlMessage(decodeFrame(encodeControlMessage({ type: "fatal", reason: "quota_exceeded" }, 1))),
+    ).toEqual({ type: "fatal", reason: "quota_exceeded" });
+  });
+
+  it("開始通知のバイト列が中継層（src/relay/internal/protocol/control.go）の形式と一致する（クロス実装の疎通確認）", () => {
+    // src/relay/internal/protocol/control.goのEncodeStartNotice/readStringと同じ規則
+    // （種別コード1byte + 2byte長プレフィックス(BE) + UTF-8本文、を3フィールド分）で
+    // 手動デコードし、encodeControlMessageの出力がこれと一致することを確認する。
+    const readString = (body: Uint8Array, offset: number): [string, number] => {
+      const view = new DataView(body.buffer, body.byteOffset, body.byteLength);
+      const length = view.getUint16(offset, false);
+      offset += 2;
+      return [new TextDecoder().decode(body.slice(offset, offset + length)), offset + length];
+    };
+
+    const encoded = encodeControlMessage(
+      { type: "start", sessionKey: "sess-1", broadcastToken: "token-1", profile: { width: 1280 } },
+      1000,
+    );
+    const frame = decodeFrame(encoded);
+    expect(frame.body[0]).toBe(0x01); // ControlStartNotice
+    const [sessionKey, off1] = readString(frame.body, 1);
+    const [broadcastToken, off2] = readString(frame.body, off1);
+    const [profileJson] = readString(frame.body, off2);
+    expect(sessionKey).toBe("sess-1");
+    expect(broadcastToken).toBe("token-1");
+    expect(JSON.parse(profileJson)).toEqual({ width: 1280 });
   });
 });
