@@ -1,0 +1,356 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.stateBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.stateBadge[data-tone="live"] {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.stateBadge[data-tone="warn"] {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.stateBadge[data-tone="error"] {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.warningBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem;
+  border-radius: 0.5rem;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.9rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 1.5rem;
+}
+
+@media (max-width: 860px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.section {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: var(--background);
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.previewWrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #111827;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.previewCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.controlsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.field input[type="text"],
+.field select {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.4rem;
+  border: 1px solid #d1d5db;
+  background: #f9fafb;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: inherit;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.buttonPrimary {
+  composes: button;
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+}
+
+.buttonDanger {
+  composes: button;
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+
+.sourceList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sourceRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.sourceLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sourceStatus {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.stateDot {
+  font-size: 0.6rem;
+}
+
+.stateDot[data-tone="active"] {
+  color: #16a34a;
+}
+
+.stateDot[data-tone="idle"] {
+  color: #9ca3af;
+}
+
+.stateDot[data-tone="warn"] {
+  color: #d97706;
+}
+
+.stateDot[data-tone="error"] {
+  color: #dc2626;
+}
+
+.healthGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.healthItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem 0.6rem;
+  background: #f9fafb;
+  border-radius: 0.4rem;
+}
+
+.healthLabel {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.healthValue {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.audienceRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.viewerCount {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.monitorUrlRow {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.monitorUrlRow input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+  color: inherit;
+  background: transparent;
+}
+
+.copiedNote {
+  font-size: 0.75rem;
+  color: #16a34a;
+}
+
+.simulatedNote {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.chatList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.chatMessage {
+  display: flex;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.4rem;
+  background: #f9fafb;
+}
+
+.chatMessage[data-origin="broadcaster"] {
+  background: #eff6ff;
+}
+
+.chatAuthor {
+  font-weight: 700;
+  color: #374151;
+  flex-shrink: 0;
+}
+
+.chatForm {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.chatForm input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.eventLog {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 260px;
+  overflow-y: auto;
+  font-size: 0.8rem;
+}
+
+.eventRow {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.eventTime {
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.emptyNote {
+  font-size: 0.8rem;
+  color: #9ca3af;
+}
+
+/* ハニーポット欄（requirements.md 21節）。人間の利用者には見えない位置に
+   画面外へ配置する（display:noneやvisibility:hiddenは一部のボットに
+   無視されるため用いない）。 */
+.honeypot {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
