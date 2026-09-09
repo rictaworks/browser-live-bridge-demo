@@ -1,6 +1,9 @@
 # This file is copied to spec/ when you run 'rails generate rspec:install'
 require 'spec_helper'
-ENV['RAILS_ENV'] ||= 'test'
+# docker-compose.ymlのbackendサービスはRAILS_ENV=developmentを既定で設定しているため、
+# `||=` では上書きされない。`docker compose run --rm backend bundle exec rspec` を実行した際に
+# 確実にtest環境で動くよう、ここでは明示的に上書きする。
+ENV['RAILS_ENV'] = 'test'
 require_relative '../config/environment'
 # Prevent database truncation if the environment is production
 abort("The Rails environment is running in production mode!") if Rails.env.production?
@@ -35,6 +38,9 @@ rescue ActiveRecord::PendingMigrationError => e
   abort e.to_s.strip
 end
 RSpec.configure do |config|
+  # 実時計に依存しないテスト（ロック回収・日次リセット・擬似視聴情報の生成）のため、travel_to等を使えるようにする。
+  config.include ActiveSupport::Testing::TimeHelpers
+
   # Remove this line if you're not using ActiveRecord or ActiveRecord fixtures
   config.fixture_paths = [
     Rails.root.join('spec/fixtures')
