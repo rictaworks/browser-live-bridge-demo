@@ -46,6 +46,8 @@ export interface StartInput {
   title?: string;
   layoutPreset: string;
   profile: EncodeProfile;
+  /** ハニーポット欄（requirements.md 21節）。人間の利用者は空のまま送信する。 */
+  hpField?: string;
 }
 
 interface DropWindowEntry {
@@ -68,6 +70,8 @@ export class BroadcastController {
   private _state: BroadcastState = "idle";
   broadcastId: string | null = null;
   broadcastToken: string | null = null;
+  /** backendが配信作成時に発行する実セッションキー。中継への開始通知に使う（options.sessionKeyは初期値）。 */
+  private sessionKey: string;
 
   private dropWindow: DropWindowEntry[] = [];
   private degradedSinceMs: number | null = null;
@@ -76,6 +80,7 @@ export class BroadcastController {
 
   constructor(options: BroadcastControllerOptions) {
     this.options = options;
+    this.sessionKey = options.sessionKey;
     this.nowMs = options.nowMs ?? (() => Date.now());
     this.setIntervalFn = options.setIntervalFn ?? ((h, ms) => setInterval(h, ms));
     this.clearIntervalFn = options.clearIntervalFn ?? ((h) => clearInterval(h));
@@ -112,9 +117,11 @@ export class BroadcastController {
       const broadcast = await this.options.apiClient.createBroadcast({
         title: input.title,
         layoutPreset: input.layoutPreset,
+        hpField: input.hpField,
       });
       this.broadcastId = broadcast.id;
       this.broadcastToken = broadcast.broadcastToken;
+      this.sessionKey = broadcast.sessionKey;
     } catch (err) {
       this.options.tabLockGuard.release();
       if (err instanceof BroadcastApiError && err.status === 409) {
@@ -131,7 +138,7 @@ export class BroadcastController {
     this.emitEvent("broadcast_started", this.broadcastId ?? undefined);
 
     this.transition("connecting");
-    this.options.transport.connect(this.options.sessionKey, this.broadcastToken!, input.profile);
+    this.options.transport.connect(this.sessionKey, this.broadcastToken!, input.profile);
 
     this.startLockHeartbeatLoop();
     this.startEvaluateLoop();
@@ -237,19 +244,15 @@ export class BroadcastController {
 
   /**
    * 毎秒の適応制御評価（requirements.md 7節・8節）。
-   * - 滞留>4000ms: 非キーフレーム映像を破棄
+   * - 滞留>4000ms: 非キーフレーム映像を破棄（8節：再接続中も送信のみ保留し、破棄方針には従う）
    * - 滞留>8000ms: 劣化状態へ。既定10秒継続で再接続へ
    */
   private evaluateTick(): void {
-    if (this._state !== "live" && this._state !== "degraded") {
+    if (this._state !== "live" && this._state !== "degraded" && this._state !== "reconnecting") {
       return;
     }
     const now = this.nowMs();
     const queueDelayMs = this.options.sendQueue.queueDelayMs(now);
-    const dropsInLast10s = this.dropsInWindow(now);
-
-    const target = this.options.governor.evaluate({ queueDelayMs, dropsInLast10s, nowMs: now });
-    this.options.onBitrateChange?.(target);
 
     if (queueDelayMs > QUEUE_DROP_THRESHOLD_MS) {
       const dropped = this.options.sendQueue.dropNonKeyVideo();
@@ -257,6 +260,15 @@ export class BroadcastController {
         this.recordDrops(now, dropped);
       }
     }
+
+    if (this._state === "reconnecting") {
+      // 送信は保留中のため、ビットレート評価・劣化判定・状態報告は再接続完了後に再開する。
+      return;
+    }
+
+    const dropsInLast10s = this.dropsInWindow(now);
+    const target = this.options.governor.evaluate({ queueDelayMs, dropsInLast10s, nowMs: now });
+    this.options.onBitrateChange?.(target);
 
     const degradedSustainMs = this.options.degradedSustainMs ?? DEGRADED_THRESHOLD_MS + 2000;
 

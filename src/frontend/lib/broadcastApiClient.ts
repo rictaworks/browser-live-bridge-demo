@@ -8,6 +8,33 @@
 
 import type { SourceKind, SourceRole } from "./types";
 
+// backend（Rails）はJSONのキーをsnake_caseで送受信する。フロントエンドの
+// 型定義はTypeScriptの慣習に合わせcamelCaseで統一しているため、通信の
+// 境界であるこの層でのみ相互変換する（バックエンド・フロントエンドいずれの
+// コードにも大文字小文字変換の責務を持ち込まない）。
+function snakeToCamelKey(key: string): string {
+  return key.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
+}
+
+function camelToSnakeKey(key: string): string {
+  return key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+}
+
+function convertKeysDeep(value: unknown, convertKey: (key: string) => string): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => convertKeysDeep(item, convertKey));
+  }
+  if (value !== null && typeof value === "object" && !(value instanceof Date)) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, v]) => [
+        convertKey(key),
+        convertKeysDeep(v, convertKey),
+      ]),
+    );
+  }
+  return value;
+}
+
 export class BroadcastApiError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
@@ -24,11 +51,15 @@ export interface Broadcast {
   title: string | null;
   layoutPreset: string;
   startedAt: string | null;
+  /** 中継サーバーへのWebSocket開始通知に使う、配信者本人のセッションキー（backendが応答に含める）。 */
+  sessionKey: string;
 }
 
 export interface CreateBroadcastInput {
   title?: string;
   layoutPreset: string;
+  /** ハニーポット欄（requirements.md 21節）。人間の利用者は空のまま送信する。 */
+  hpField?: string;
 }
 
 export interface AddSourceInput {
@@ -78,7 +109,7 @@ export class BroadcastApiClient {
       method: init.method ?? "GET",
       credentials: "include",
       headers: init.body !== undefined ? { "Content-Type": "application/json" } : undefined,
-      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      body: init.body !== undefined ? JSON.stringify(convertKeysDeep(init.body, camelToSnakeKey)) : undefined,
     });
 
     if (!response.ok) {
@@ -90,7 +121,8 @@ export class BroadcastApiClient {
       return undefined as T;
     }
 
-    return (await response.json()) as T;
+    const body = await response.json();
+    return convertKeysDeep(body, snakeToCamelKey) as T;
   }
 
   private async safeErrorMessage(response: Response): Promise<string> {
@@ -142,7 +174,10 @@ export class BroadcastApiClient {
     });
   }
 
-  getEvents(broadcastId: string): Promise<BroadcastEventRecord[]> {
-    return this.request<BroadcastEventRecord[]>(`/api/broadcasts/${broadcastId}/events`);
+  async getEvents(broadcastId: string): Promise<BroadcastEventRecord[]> {
+    const { events } = await this.request<{ events: BroadcastEventRecord[] }>(
+      `/api/broadcasts/${broadcastId}/events`,
+    );
+    return events;
   }
 }

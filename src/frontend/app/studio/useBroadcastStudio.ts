@@ -83,19 +83,6 @@ function detectCapabilities(): { ok: boolean; reasons: string[] } {
   return { ok: reasons.length === 0, reasons };
 }
 
-function sessionKeyFromCookie(): string {
-  if (typeof document === "undefined") {
-    return "";
-  }
-  const match = document.cookie.match(/(?:^|;\s*)session_key=([^;]+)/);
-  if (match) {
-    return decodeURIComponent(match[1]);
-  }
-  const generated = `sess-${Math.random().toString(36).slice(2)}${Date.now()}`;
-  document.cookie = `session_key=${generated}; path=/; SameSite=Lax`;
-  return generated;
-}
-
 function trackToTrackLike(track: MediaStreamTrack): TrackLike {
   return {
     addEventListener: (type, listener) => track.addEventListener(type, listener),
@@ -288,7 +275,7 @@ export function useBroadcastStudio() {
   }, []);
 
   const start = useCallback(
-    async (input: { title?: string; layoutPreset: string }) => {
+    async (input: { title?: string; layoutPreset: string; hpField?: string }) => {
       if (!capabilities.ok) {
         return;
       }
@@ -331,6 +318,7 @@ export function useBroadcastStudio() {
       await controller.start({
         title: input.title,
         layoutPreset: input.layoutPreset,
+        hpField: input.hpField,
         profile: DEFAULT_ENCODE_PROFILE,
       });
 
@@ -422,7 +410,10 @@ export function useBroadcastStudio() {
   );
 
   useEffect(() => {
-    sessionKeyRef.current = sessionKeyFromCookie();
+    // 実際のセッションキーはbackendが配信作成時のレスポンスで発行する
+    // （中継サーバーは自身ではCookieを読まないため）。ここでは配信開始前の
+    // 初期値としてのみ空文字を渡し、BroadcastController.start()が
+    // createBroadcast()のレスポンスで上書きする。
     apiClientRef.current = new BroadcastApiClient();
     sendQueueRef.current = new SendQueue();
     governorRef.current = new BitrateGovernor({

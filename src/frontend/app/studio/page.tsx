@@ -120,6 +120,10 @@ export default function StudioPage() {
   const [layoutPreset, setLayoutPreset] = useState(LAYOUT_PRESETS[0].value);
   const [chatDraft, setChatDraft] = useState("");
   const [copied, setCopied] = useState(false);
+  // ハニーポット欄（requirements.md 21節）。人間の利用者には見えない位置に置き、
+  // 空のまま送信されることを期待する。フォームを機械的に全項目埋めて送信する
+  // 単純なボットのみを検知する対策であり、reCAPTCHAは使用しない。
+  const [hpField, setHpField] = useState("");
 
   const canStart = studio.capabilities.ok && studio.broadcastState === "idle";
   const canStop = !["idle", "stopping", "ended", "failed"].includes(studio.broadcastState);
@@ -132,7 +136,7 @@ export default function StudioPage() {
   }, [studio.broadcastToken]);
 
   const handleStart = async () => {
-    await studio.start({ title: title.trim() || undefined, layoutPreset });
+    await studio.start({ title: title.trim() || undefined, layoutPreset, hpField });
   };
 
   const handleStop = async () => {
@@ -222,6 +226,20 @@ export default function StudioPage() {
                     </option>
                   ))}
                 </select>
+              </label>
+              {/* ハニーポット欄（requirements.md 21節）。画面上には表示されず、
+                  スクリーンリーダーからも隠される。人間の利用者は入力できないため
+                  常に空のまま送信される。 */}
+              <label className={styles.honeypot} aria-hidden="true">
+                この項目は入力しないでください
+                <input
+                  type="text"
+                  name="hp_field"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={hpField}
+                  onChange={(evt) => setHpField(evt.target.value)}
+                />
               </label>
             </div>
             <div className={styles.controlsRow}>

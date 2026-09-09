@@ -342,3 +342,15 @@
   font-size: 0.8rem;
   color: #9ca3af;
 }
+
+/* ハニーポット欄（requirements.md 21節）。人間の利用者には見えない位置に
+   画面外へ配置する（display:noneやvisibility:hiddenは一部のボットに
+   無視されるため用いない）。 */
+.honeypot {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}

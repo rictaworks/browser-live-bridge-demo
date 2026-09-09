@@ -32,6 +32,9 @@ function makeDeps(overrides: Partial<{ acquireResult: boolean }> = {}) {
       title: null,
       layoutPreset: "standard",
       startedAt: null,
+      // backendが発行する実セッションキー。コンストラクタ引数のsessionKey（初期値）とは
+      // 別物であることをテストで明確にするため、意図的に異なる値にしている。
+      sessionKey: "backend-issued-session-key",
     }),
     stopBroadcast: jest.fn().mockResolvedValue(undefined),
     lockHeartbeat: jest.fn().mockResolvedValue(undefined),
@@ -95,8 +98,10 @@ describe("BroadcastController", () => {
       title: undefined,
       layoutPreset: "standard",
     });
+    // 接続にはoptions.sessionKey（初期値）ではなく、配信作成レスポンスの
+    // sessionKey（backend発行の実セッションキー）を使う。
     expect(deps.transport.connect).toHaveBeenCalledWith(
-      "session-1",
+      "backend-issued-session-key",
       "token-1",
       DEFAULT_ENCODE_PROFILE,
     );
@@ -248,6 +253,25 @@ describe("BroadcastController", () => {
     evaluateEntry.handler();
 
     expect(deps.sendQueue.dropNonKeyVideo).toHaveBeenCalled();
+  });
+
+  it("evaluateTick: reconnecting状態でも滞留時間の破棄方針は継続する（8節：送信のみ保留）", async () => {
+    const deps = makeDeps();
+    deps.sendQueue.queueDelayMs.mockReturnValue(4500);
+    const timers = makeTimerSpies();
+    const { controller } = makeController(deps, timers);
+    await controller.start({ layoutPreset: "standard", profile: DEFAULT_ENCODE_PROFILE });
+    controller.handleTransportOpen(false);
+    controller.handleTransportClose();
+    expect(controller.state).toBe("reconnecting");
+
+    const evaluateEntry = timers.entries.find((e) => e.ms === 1000)!;
+    evaluateEntry.handler();
+
+    expect(deps.sendQueue.dropNonKeyVideo).toHaveBeenCalled();
+    // 再接続完了前は送信が保留中のため、ビットレート評価・状態報告は行わない。
+    expect(deps.governor.evaluate).not.toHaveBeenCalled();
+    expect(deps.transport.sendControl).not.toHaveBeenCalled();
   });
 
   it("evaluateTick: 滞留時間が8000msを超えるとdegradedへ、規定時間継続するとreconnectingへ移行する", async () => {
