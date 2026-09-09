@@ -50,4 +50,8 @@ Rails.application.configure do
 
   # Raise error when a before_action's only/except options reference missing actions.
   config.action_controller.raise_on_missing_callback_actions = true
+
+  # request specにおけるrack-testの既定Hostヘッダー（www.example.com等）をHost Authorizationで
+  # 弾かないようにする。本番環境（config/environments/production.rb）の制限には影響しない。
+  config.hosts.clear
 end

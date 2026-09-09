@@ -40,5 +40,13 @@ module App
     # Middleware like session, flash, cookies can be added back manually.
     # Skip views, helpers and assets when generating a new resource.
     config.api_only = true
+
+    # セッションキーをCookie（httponly, same_site: :lax）に保持するため、
+    # API-onlyモードでは含まれないCookie・セッションのミドルウェアを明示的に有効化する
+    # （requirements.md 9節・21節、CLAUDE.md「認証・認可を設計に組み込まない」）。
+    # 発行するのはセッションキーのみで、認証状態は一切保持しない。
+    config.session_store :cookie_store, key: "_browser_live_bridge_demo_session", same_site: :lax
+    config.middleware.use ActionDispatch::Cookies
+    config.middleware.use config.session_store, config.session_options
   end
 end
