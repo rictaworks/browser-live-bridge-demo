@@ -553,6 +553,13 @@ export function useBroadcastStudio() {
 
     const manager = new SourceManager(providers, (event) => {
       setSources((prev) => ({ ...prev, [event.kind]: event.state }));
+      // "requesting"（取得試行中）・"denied"（許可拒否）はUI上のバッジ表示
+      // （SOURCE_STATE_LABELS）だけで表現し、イベントログには残さない。
+      // 以前はここが漏れて default 節に落ち、取得試行中の一瞬が
+      // 「ソースを喪失しました」と誤表示されていた（実機で確認した障害）。
+      if (event.state === "requesting" || event.state === "denied") {
+        return;
+      }
       pushEvent({
         occurredAt: Date.now(),
         type:
@@ -562,9 +569,7 @@ export function useBroadcastStudio() {
               ? "source_lost"
               : event.state === "substituted"
                 ? "source_substituted"
-                : event.state === "detached"
-                  ? "source_detached"
-                  : "source_lost",
+                : "source_detached",
         detail: event.kind,
       });
     });
