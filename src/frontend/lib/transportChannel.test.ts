@@ -5,6 +5,7 @@ import { DEFAULT_ENCODE_PROFILE } from "./types";
 class FakeWebSocket implements WebSocketLike {
   static instances: FakeWebSocket[] = [];
   readyState = 0; // CONNECTING
+  binaryType = "blob"; // 実ブラウザの既定値を模擬する
   sent: Uint8Array[] = [];
   onopen: (() => void) | null = null;
   onclose: ((event: { code: number; reason: string }) => void) | null = null;
@@ -46,6 +47,18 @@ function resetInstances() {
 describe("TransportChannel", () => {
   beforeEach(() => {
     resetInstances();
+  });
+
+  it("connect()はWebSocketのbinaryTypeをarraybufferに設定する（既定のblobのままだと中継からの制御メッセージが無言で破棄される。monitorClient.tsで実機確認した障害と同種）", () => {
+    const channel = new TransportChannel({
+      url: "ws://relay.example/ws/publish",
+      WebSocketCtor: FakeWebSocket as never,
+      onControl: () => {},
+    });
+
+    channel.connect("session-1", "token-1", DEFAULT_ENCODE_PROFILE);
+
+    expect(FakeWebSocket.instances[0].binaryType).toBe("arraybuffer");
   });
 
   it("connect()するとWebSocketを開き、open時に開始通知（start）を送信する", () => {
