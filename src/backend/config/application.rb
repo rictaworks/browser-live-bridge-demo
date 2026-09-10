@@ -41,11 +41,21 @@ module App
     # Skip views, helpers and assets when generating a new resource.
     config.api_only = true
 
-    # セッションキーをCookie（httponly, same_site: :lax）に保持するため、
+    # セッションキーをCookie（httponly）に保持するため、
     # API-onlyモードでは含まれないCookie・セッションのミドルウェアを明示的に有効化する
     # （requirements.md 9節・21節、CLAUDE.md「認証・認可を設計に組み込まない」）。
     # 発行するのはセッションキーのみで、認証状態は一切保持しない。
-    config.session_store :cookie_store, key: "_browser_live_bridge_demo_session", same_site: :lax
+    #
+    # フロントエンド（Vercel）とアプリケーション層（Railway）は本番では別オリジンに
+    # なるため、same_site: :lax ではクロスサイトfetchにCookieが付与されず、
+    # 作成直後のリクエスト以外がすべて404（session_idが毎回変わり所有権スコープに
+    # 一致しなくなるため）になる。same_site: :none には secure 属性が必須（仕様上）で、
+    # 開発環境はhttp://localhostのためsecure: trueだとCookie自体が送られなくなる。
+    # 本番（HTTPS）でのみsecureを有効にする。
+    config.session_store :cookie_store,
+      key: "_browser_live_bridge_demo_session",
+      same_site: :none,
+      secure: Rails.env.production?
     config.middleware.use ActionDispatch::Cookies
     config.middleware.use config.session_store, config.session_options
   end
