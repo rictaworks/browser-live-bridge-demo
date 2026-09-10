@@ -145,6 +145,7 @@ export function useBroadcastStudio() {
   const controllerRef = useRef<BroadcastController | null>(null);
   const videoEncoderRef = useRef<VideoEncoderPipeline | null>(null);
   const audioEncoderRef = useRef<AudioEncoderPipeline | null>(null);
+  const audioEncoderClosedRef = useRef<boolean>(false);
   const sessionKeyRef = useRef<string>("");
   const audiencePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -160,8 +161,13 @@ export function useBroadcastStudio() {
     }
     const sent = transport.isConnected && transport.sendChunk(frame);
     if (!sent) {
+      // frame.typeは"video"/"audio"/"control"に加え"video_config"/"audio_config"も
+      // 取り得る（onConfig経由）。SendQueueItem.typeは"video"|"audio"|"control"の
+      // 3値のみのため、*_configはそれぞれ対応する本体種別へ分類する
+      // （configは常にkeyframe:trueのためdropNonKeyVideo()の対象にはならないが、
+      // 分類自体が誤っているのは直しておく）。
       queue.enqueue({
-        type: frame.type === "audio" ? "audio" : frame.type === "control" ? "control" : "video",
+        type: frame.type === "control" ? "control" : frame.type.includes("audio") ? "audio" : "video",
         keyframe: frame.keyframe,
         timestampUs: frame.timestampUs,
         enqueuedAtMs: Date.now(),
@@ -231,20 +237,30 @@ export function useBroadcastStudio() {
   const emitAudioBlock = useCallback((data: Float32Array) => {
     const mediaClock = mediaClockRef.current;
     const audioEncoder = audioEncoderRef.current;
-    if (!mediaClock || !audioEncoder) {
+    if (!mediaClock || !audioEncoder || audioEncoderClosedRef.current) {
       return;
     }
     const timestampUs = mediaClock.nextAudioTime(data.length);
+    // AudioMixerはモノラル（1チャンネル分）のバッファしか生成しないが、
+    // requirements.md 6.5節どおりエンコード出力はチャンネル数2（ステレオ）で
+    // 構成する（DEFAULT_ENCODE_PROFILE.channels）。AudioEncoderの設定と
+    // AudioDataの宣言チャンネル数が食い違うとencode()がエラーで閉塞するため、
+    // モノラルの内容をL/R両チャンネルへ複製したplanarバッファを渡す。
+    const channels = DEFAULT_ENCODE_PROFILE.channels;
+    const planar = new Float32Array(data.length * channels);
+    for (let channel = 0; channel < channels; channel += 1) {
+      planar.set(data, channel * data.length);
+    }
     const audioData = new AudioData({
       format: "f32-planar",
       sampleRate: DEFAULT_ENCODE_PROFILE.sampleRate,
       numberOfFrames: data.length,
-      numberOfChannels: 1,
+      numberOfChannels: channels,
       timestamp: timestampUs,
       // Float32Arrayのbuffer型はArrayBufferLike（SharedArrayBufferを許容）だが、
       // AudioDataInitのdataはArrayBuffer限定のBufferSourceを要求する。ここで渡す
       // データはmixBuffers/AudioMixerが生成する通常のArrayBuffer由来であるため安全。
-      data: data as unknown as BufferSource,
+      data: planar as unknown as BufferSource,
     });
     try {
       audioEncoder.encode(audioData);
@@ -299,9 +315,17 @@ export function useBroadcastStudio() {
           });
           setHealth((prev) => ({ ...prev, sentBitrateKbps: governorRef.current?.target ?? prev.sentBitrateKbps }));
         },
+        // decoderConfigが届き次第（初回・setBitrateによる再設定後含む）即時送信する。
+        // onResendConfigは再接続時の再送専用で、初回接続時点ではまだconfigChunk()が
+        // 存在せず何も送れないため、これが無いと中継が映像設定を一度も受け取れない
+        // （6.7節「映像設定・音声設定を受け取るまでpublishを開始しないこと」に抵触する）。
+        onConfig: (chunk) => {
+          sendMediaFrame({ type: "video_config", keyframe: true, timestampUs: chunk.timestampUs, body: chunk.data });
+        },
         onError: (err) => pushEvent({ occurredAt: Date.now(), type: "broadcast_failed", detail: err.message }),
       });
 
+      audioEncoderClosedRef.current = false;
       audioEncoderRef.current = new AudioEncoderPipeline({
         profile: DEFAULT_ENCODE_PROFILE,
         AudioEncoderCtor: AudioEncoderCtorRef,
@@ -312,6 +336,15 @@ export function useBroadcastStudio() {
             timestampUs: chunk.timestampUs,
             body: chunk.data,
           });
+        },
+        onConfig: (chunk) => {
+          sendMediaFrame({ type: "audio_config", keyframe: true, timestampUs: chunk.timestampUs, body: chunk.data });
+        },
+        onError: (err) => {
+          // WebCodecsのAudioEncoderはエラー後closed状態になり、以降のencode()は
+          // 例外を投げ続ける。閉塞を記録して以降の呼び出しを止める（無限リトライ防止）。
+          audioEncoderClosedRef.current = true;
+          pushEvent({ occurredAt: Date.now(), type: "broadcast_failed", detail: err.message });
         },
       });
 
