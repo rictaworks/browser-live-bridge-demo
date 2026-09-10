@@ -77,6 +77,10 @@ export type VideoEncoderCtor = new (init: {
 export interface VideoEncoderPipelineOptions {
   profile: EncodeProfile;
   onChunk: (chunk: EncodedChunkLike) => void;
+  /** decoderConfigが届くたび（初回・setBitrateによる再設定後を含む）に呼ばれる。
+   *  呼び出し側はこれを使って"video_config"フレームを即時送信すること
+   *  （6.5節: エンコーダの初期化情報は最初のメディアフレームより前に送信する）。 */
+  onConfig?: (chunk: EncodedChunkLike) => void;
   onError?: (error: Error) => void;
   VideoEncoderCtor: VideoEncoderCtor;
 }
@@ -84,6 +88,7 @@ export interface VideoEncoderPipelineOptions {
 export class VideoEncoderPipeline {
   private readonly encoder: VideoEncoderLike;
   private readonly onChunk: (chunk: EncodedChunkLike) => void;
+  private readonly onConfig?: (chunk: EncodedChunkLike) => void;
   private readonly profile: EncodeProfile;
   private bitrateKbps: number;
   private pendingForceKeyframe = false;
@@ -92,6 +97,7 @@ export class VideoEncoderPipeline {
   constructor(options: VideoEncoderPipelineOptions) {
     this.profile = options.profile;
     this.onChunk = options.onChunk;
+    this.onConfig = options.onConfig;
     this.bitrateKbps = options.profile.videoBitrateInitialKbps;
 
     this.encoder = new options.VideoEncoderCtor({
@@ -142,6 +148,8 @@ export class VideoEncoderPipeline {
         timestampUs: chunk.timestamp,
         data: descriptionToBytes(metadata.decoderConfig.description),
       };
+      // configはこの直後に送る本体フレームより前に届けるため、onChunkより先に呼ぶ。
+      this.onConfig?.(this.lastConfigChunk);
     }
     this.onChunk({
       type: chunk.type,
@@ -170,6 +178,9 @@ export type AudioEncoderCtor = new (init: {
 export interface AudioEncoderPipelineOptions {
   profile: EncodeProfile;
   onChunk: (chunk: EncodedChunkLike) => void;
+  /** decoderConfigが届くたびに呼ばれる。呼び出し側はこれを使って
+   *  "audio_config"フレームを即時送信すること（6.5節）。 */
+  onConfig?: (chunk: EncodedChunkLike) => void;
   onError?: (error: Error) => void;
   AudioEncoderCtor: AudioEncoderCtor;
 }
@@ -177,10 +188,12 @@ export interface AudioEncoderPipelineOptions {
 export class AudioEncoderPipeline {
   private readonly encoder: AudioEncoderLike;
   private readonly onChunk: (chunk: EncodedChunkLike) => void;
+  private readonly onConfig?: (chunk: EncodedChunkLike) => void;
   private lastConfigChunk: EncodedChunkLike | null = null;
 
   constructor(options: AudioEncoderPipelineOptions) {
     this.onChunk = options.onChunk;
+    this.onConfig = options.onConfig;
 
     this.encoder = new options.AudioEncoderCtor({
       output: (chunk, metadata) => this.handleOutput(chunk, metadata),
@@ -211,6 +224,7 @@ export class AudioEncoderPipeline {
         timestampUs: chunk.timestamp,
         data: descriptionToBytes(metadata.decoderConfig.description),
       };
+      this.onConfig?.(this.lastConfigChunk);
     }
     this.onChunk({
       type: chunk.type,
