@@ -161,8 +161,13 @@ export function useBroadcastStudio() {
     }
     const sent = transport.isConnected && transport.sendChunk(frame);
     if (!sent) {
+      // frame.typeは"video"/"audio"/"control"に加え"video_config"/"audio_config"も
+      // 取り得る（onConfig経由）。SendQueueItem.typeは"video"|"audio"|"control"の
+      // 3値のみのため、*_configはそれぞれ対応する本体種別へ分類する
+      // （configは常にkeyframe:trueのためdropNonKeyVideo()の対象にはならないが、
+      // 分類自体が誤っているのは直しておく）。
       queue.enqueue({
-        type: frame.type === "audio" ? "audio" : frame.type === "control" ? "control" : "video",
+        type: frame.type === "control" ? "control" : frame.type.includes("audio") ? "audio" : "video",
         keyframe: frame.keyframe,
         timestampUs: frame.timestampUs,
         enqueuedAtMs: Date.now(),
