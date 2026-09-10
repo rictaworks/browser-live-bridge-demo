@@ -98,7 +98,7 @@ export class BroadcastApiClient {
 
   constructor(options: BroadcastApiClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? process.env.NEXT_PUBLIC_BACKEND_URL ?? "";
-    this.fetchFn = options.fetchFn ?? fetch;
+    this.fetchFn = options.fetchFn ?? fetch.bind(globalThis);
   }
 
   private async request<T>(
