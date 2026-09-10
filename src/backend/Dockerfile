@@ -1,5 +1,5 @@
-# 開発用Dockerfile（アプリケーション層 / Rails）。
-# 本番デプロイはRailwayのビルドパイプラインに委譲し、ここではdocker compose開発環境専用とする。
+# アプリケーション層（Rails）のDockerfile。docker compose開発環境と
+# Railway本番デプロイの両方でこのDockerfileがそのまま使われる。
 FROM ruby:3.3-slim
 
 WORKDIR /app
@@ -19,4 +19,4 @@ COPY . .
 
 EXPOSE 3001
 
-CMD ["bin/rails", "server", "-b", "0.0.0.0", "-p", "3001"]
+CMD ["sh", "-c", "bin/rails db:prepare && bin/rails server -b 0.0.0.0 -p 3001"]
