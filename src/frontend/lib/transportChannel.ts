@@ -22,6 +22,11 @@ import type { EncodeProfile } from "./types";
 
 export interface WebSocketLike {
   readonly readyState: number;
+  // ブラウザのWebSocketは既定でbinaryType="blob"のため、中継からの制御メッセージ
+  // （受領応答・キーフレーム要求・抑制指示・致命通知）がArrayBufferとしてではなく
+  // Blobとして届く。設定し忘れるとhandleMessageのinstanceof判定に一致せず、
+  // 制御メッセージが無言で破棄される（monitorClient.tsで実機確認した障害と同種）。
+  binaryType: string;
   send(data: ArrayBuffer | ArrayBufferView): void;
   close(code?: number, reason?: string): void;
   set onopen(handler: (() => void) | null);
@@ -108,6 +113,7 @@ export class TransportChannel {
 
   private openSocket(): void {
     const ws = new this.options.WebSocketCtor(this.options.url);
+    ws.binaryType = "arraybuffer";
     this.ws = ws;
 
     ws.onopen = () => this.handleOpen();
