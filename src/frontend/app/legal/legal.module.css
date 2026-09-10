@@ -1,0 +1,80 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 1.5rem 1.5rem 3rem;
+  font-family: var(--font-geist-sans);
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--foreground);
+  opacity: 0.55;
+  font-size: 0.85rem;
+  text-decoration: none;
+  margin-bottom: 1.5rem;
+}
+
+.title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 2rem;
+}
+
+.section {
+  margin-bottom: 2.5rem;
+}
+
+.sectionTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+}
+
+.list {
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+  color: var(--foreground);
+  opacity: 0.85;
+  line-height: 1.7;
+}
+
+.contactList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.contactRow {
+  display: flex;
+  gap: 1rem;
+}
+
+.contactLabel {
+  width: 5rem;
+  flex-shrink: 0;
+  color: var(--foreground);
+  opacity: 0.55;
+  font-size: 0.9rem;
+}
+
+.contactValue {
+  font-size: 0.9rem;
+  color: var(--foreground);
+  opacity: 0.85;
+}
+
+.contactValue a {
+  color: inherit;
+  opacity: 1;
+  text-decoration: underline;
+}
