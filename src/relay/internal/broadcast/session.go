@@ -110,6 +110,12 @@ type Session struct {
 	seenVideo          bool
 	lastAudioTimestamp uint64
 	seenAudio          bool
+
+	// 送出ビットレート計測用（12.1節・16.2節の健全性表示）。DrainOnceで
+	// 実際にpublisherへ書き出したバイト数を積算し、Tickで直前計測からの
+	// 経過時間で割ってkbpsを算出したのち、この2つをリセットする。
+	sentBytesSinceTick uint64
+	lastTickAt         time.Time
 }
 
 // NewSession は開始通知待ちの新規Sessionを生成します。
@@ -239,6 +245,8 @@ func (s *Session) startPublishLocked() Action {
 	s.queue = ratecontrol.NewQueue()
 	s.governor = ratecontrol.NewBitrateGovernor(ratecontrol.DefaultConfig())
 	s.lastReportedState = ratecontrol.StateLive
+	s.sentBytesSinceTick = 0
+	s.lastTickAt = s.deps.now()
 	s.state = stateLive
 
 	// requirements.md 16.3節: 接続確立直後にキーフレーム発行を求め、モニターの
@@ -355,6 +363,9 @@ func (s *Session) DrainOnce() {
 			// 再接続要求に処理を委ねる。
 			return
 		}
+		s.mu.Lock()
+		s.sentBytesSinceTick += uint64(len(item.Payload))
+		s.mu.Unlock()
 	}
 }
 
@@ -378,6 +389,7 @@ func (s *Session) Tick(ctx context.Context, now time.Time) Action {
 	q := s.queue
 	gov := s.governor
 	broadcastID := s.broadcastID
+	broadcastToken := s.broadcastToken
 	s.mu.Unlock()
 
 	delay := q.QueueDelay(now)
@@ -402,29 +414,39 @@ func (s *Session) Tick(ctx context.Context, now time.Time) Action {
 	s.mu.Lock()
 	stateChanged := decision.State != s.lastReportedState
 	s.lastReportedState = decision.State
+	sentBytes := s.sentBytesSinceTick
+	s.sentBytesSinceTick = 0
+	elapsed := now.Sub(s.lastTickAt)
+	s.lastTickAt = now
 	s.mu.Unlock()
+
+	sentBitrateKbps := 0
+	if elapsed > 0 && sentBytes > 0 {
+		sentBitrateKbps = int(float64(sentBytes*8) / 1000 / elapsed.Seconds())
+	}
 	if stateChanged {
 		detail := fmt.Sprintf("state=%s queue_delay_ms=%d", decision.State.String(), delay.Milliseconds())
 		go func() {
-			_ = s.deps.Backend.ReportEvent(ctx, broadcastID, "state_changed", detail)
+			_ = s.deps.Backend.ReportEvent(ctx, broadcastID, broadcastToken, "state_changed", detail)
 		}()
 	}
 
 	sample := backendclient.HealthSample{
 		QueueMs:            delay.Milliseconds(),
+		SentBitrateKbps:    sentBitrateKbps,
 		TargetBitrateKbps:  int(decision.TargetBitrateKbps),
 		DroppedVideoFrames: int64(q.DroppedVideoFrames()),
 		DroppedAudioFrames: int64(q.DroppedAudioFrames()),
 		State:              decision.State.String(),
 	}
 	go func() {
-		_ = s.deps.Backend.ReportHealth(ctx, broadcastID, sample)
+		_ = s.deps.Backend.ReportHealth(ctx, broadcastID, broadcastToken, sample)
 	}()
 
 	if decision.ShouldReconnect {
 		_ = s.out.WriteFrame(fatalFrame(now, "queue_congestion_sustained"))
 		go func() {
-			_ = s.deps.Backend.ReportEvent(ctx, broadcastID, "reconnect_requested", "queue delay exceeded degraded threshold for sustained duration")
+			_ = s.deps.Backend.ReportEvent(ctx, broadcastID, broadcastToken, "reconnect_requested", "queue delay exceeded degraded threshold for sustained duration")
 		}()
 		s.mu.Lock()
 		s.state = stateEnded
@@ -448,8 +470,9 @@ func (s *Session) Close() {
 
 func (s *Session) finishBackendAsync(reason string) {
 	broadcastID := s.broadcastID
+	broadcastToken := s.broadcastToken
 	go func() {
-		_ = s.deps.Backend.Finish(context.Background(), broadcastID, reason)
+		_ = s.deps.Backend.Finish(context.Background(), broadcastID, broadcastToken, reason)
 	}()
 }
 

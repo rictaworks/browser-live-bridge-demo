@@ -47,12 +47,13 @@ type HealthSample struct {
 type Client interface {
 	// Verify は開始通知のセッションキー・配信トークンの組を照合します（6.6節要件）。
 	Verify(ctx context.Context, sessionKey, broadcastToken string) (VerifyResult, error)
-	// ReportHealth は健全性サンプルを記録します。
-	ReportHealth(ctx context.Context, broadcastID string, sample HealthSample) error
+	// ReportHealth は健全性サンプルを記録します。broadcastTokenはVerifyで照合済みの
+	// ものを渡し、backend側でid×token相関チェックの多層防御に使う。
+	ReportHealth(ctx context.Context, broadcastID, broadcastToken string, sample HealthSample) error
 	// ReportEvent は配信中に発生した事象を記録します。
-	ReportEvent(ctx context.Context, broadcastID string, eventType string, detail string) error
+	ReportEvent(ctx context.Context, broadcastID, broadcastToken, eventType, detail string) error
 	// Finish は配信の終了を記録します。
-	Finish(ctx context.Context, broadcastID string, reason string) error
+	Finish(ctx context.Context, broadcastID, broadcastToken, reason string) error
 }
 
 // HTTPClient は Client の実装です。
@@ -116,24 +117,30 @@ func (c *HTTPClient) Verify(ctx context.Context, sessionKey, broadcastToken stri
 	return result, nil
 }
 
-func (c *HTTPClient) ReportHealth(ctx context.Context, broadcastID string, sample HealthSample) error {
+func (c *HTTPClient) ReportHealth(ctx context.Context, broadcastID, broadcastToken string, sample HealthSample) error {
+	reqBody := struct {
+		HealthSample
+		BroadcastToken string `json:"broadcast_token"`
+	}{HealthSample: sample, BroadcastToken: broadcastToken}
 	path := fmt.Sprintf("/internal/broadcasts/%s/health_samples", broadcastID)
-	return c.postJSON(ctx, path, sample, nil)
+	return c.postJSON(ctx, path, reqBody, nil)
 }
 
-func (c *HTTPClient) ReportEvent(ctx context.Context, broadcastID string, eventType string, detail string) error {
+func (c *HTTPClient) ReportEvent(ctx context.Context, broadcastID, broadcastToken, eventType, detail string) error {
 	reqBody := struct {
-		EventType string `json:"event_type"`
-		Detail    string `json:"detail"`
-	}{EventType: eventType, Detail: detail}
+		BroadcastToken string `json:"broadcast_token"`
+		EventType      string `json:"event_type"`
+		Detail         string `json:"detail"`
+	}{BroadcastToken: broadcastToken, EventType: eventType, Detail: detail}
 	path := fmt.Sprintf("/internal/broadcasts/%s/events", broadcastID)
 	return c.postJSON(ctx, path, reqBody, nil)
 }
 
-func (c *HTTPClient) Finish(ctx context.Context, broadcastID string, reason string) error {
+func (c *HTTPClient) Finish(ctx context.Context, broadcastID, broadcastToken, reason string) error {
 	reqBody := struct {
-		Reason string `json:"reason"`
-	}{Reason: reason}
+		BroadcastToken string `json:"broadcast_token"`
+		Reason         string `json:"reason"`
+	}{BroadcastToken: broadcastToken, Reason: reason}
 	path := fmt.Sprintf("/internal/broadcasts/%s/finish", broadcastID)
 	return c.postJSON(ctx, path, reqBody, nil)
 }

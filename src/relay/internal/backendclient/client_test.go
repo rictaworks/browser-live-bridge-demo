@@ -65,7 +65,7 @@ func TestVerifyReturnsErrorWhenBackendUnreachable(t *testing.T) {
 
 func TestReportHealthSendsToCorrectPath(t *testing.T) {
 	var gotPath string
-	var gotBody HealthSample
+	var gotBody map[string]interface{}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
@@ -83,15 +83,19 @@ func TestReportHealthSendsToCorrectPath(t *testing.T) {
 		DroppedAudioFrames: 0,
 		State:              "live",
 	}
-	if err := c.ReportHealth(context.Background(), "b-42", sample); err != nil {
+	if err := c.ReportHealth(context.Background(), "b-42", "tok-42", sample); err != nil {
 		t.Fatalf("ReportHealth() error = %v", err)
 	}
 
 	if gotPath != "/internal/broadcasts/b-42/health_samples" {
 		t.Errorf("path = %q", gotPath)
 	}
-	if gotBody != sample {
-		t.Errorf("body = %+v, want %+v", gotBody, sample)
+	// broadcast_tokenは、backend側でid×tokenの相関チェック（多層防御）に使う。
+	if gotBody["broadcast_token"] != "tok-42" {
+		t.Errorf("broadcast_token = %v, want tok-42", gotBody["broadcast_token"])
+	}
+	if gotBody["state"] != "live" || gotBody["queue_ms"] != float64(1200) {
+		t.Errorf("body = %+v", gotBody)
 	}
 }
 
@@ -107,14 +111,14 @@ func TestReportEventSendsToCorrectPath(t *testing.T) {
 	defer srv.Close()
 
 	c := NewHTTPClient(srv.URL)
-	if err := c.ReportEvent(context.Background(), "b-42", "degraded", "queue delay exceeded"); err != nil {
+	if err := c.ReportEvent(context.Background(), "b-42", "tok-42", "degraded", "queue delay exceeded"); err != nil {
 		t.Fatalf("ReportEvent() error = %v", err)
 	}
 
 	if gotPath != "/internal/broadcasts/b-42/events" {
 		t.Errorf("path = %q", gotPath)
 	}
-	if gotBody["event_type"] != "degraded" || gotBody["detail"] != "queue delay exceeded" {
+	if gotBody["broadcast_token"] != "tok-42" || gotBody["event_type"] != "degraded" || gotBody["detail"] != "queue delay exceeded" {
 		t.Errorf("body = %+v", gotBody)
 	}
 }
@@ -131,14 +135,14 @@ func TestFinishSendsToCorrectPath(t *testing.T) {
 	defer srv.Close()
 
 	c := NewHTTPClient(srv.URL)
-	if err := c.Finish(context.Background(), "b-42", "user_stopped"); err != nil {
+	if err := c.Finish(context.Background(), "b-42", "tok-42", "user_stopped"); err != nil {
 		t.Fatalf("Finish() error = %v", err)
 	}
 
 	if gotPath != "/internal/broadcasts/b-42/finish" {
 		t.Errorf("path = %q", gotPath)
 	}
-	if gotBody["reason"] != "user_stopped" {
+	if gotBody["broadcast_token"] != "tok-42" || gotBody["reason"] != "user_stopped" {
 		t.Errorf("body = %+v", gotBody)
 	}
 }

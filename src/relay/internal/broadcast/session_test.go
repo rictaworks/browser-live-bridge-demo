@@ -21,11 +21,11 @@ type verifyCall struct {
 }
 
 type eventCall struct {
-	broadcastID, eventType, detail string
+	broadcastID, broadcastToken, eventType, detail string
 }
 
 type finishCall struct {
-	broadcastID, reason string
+	broadcastID, broadcastToken, reason string
 }
 
 // fakeBackend は backendclient.Client のテスト用実装です。
@@ -58,18 +58,18 @@ func (f *fakeBackend) Verify(_ context.Context, sessionKey, broadcastToken strin
 	return result, err
 }
 
-func (f *fakeBackend) ReportHealth(_ context.Context, _ string, sample backendclient.HealthSample) error {
+func (f *fakeBackend) ReportHealth(_ context.Context, _, _ string, sample backendclient.HealthSample) error {
 	f.healthCh <- sample
 	return nil
 }
 
-func (f *fakeBackend) ReportEvent(_ context.Context, broadcastID, eventType, detail string) error {
-	f.eventCh <- eventCall{broadcastID, eventType, detail}
+func (f *fakeBackend) ReportEvent(_ context.Context, broadcastID, broadcastToken, eventType, detail string) error {
+	f.eventCh <- eventCall{broadcastID, broadcastToken, eventType, detail}
 	return nil
 }
 
-func (f *fakeBackend) Finish(_ context.Context, broadcastID, reason string) error {
-	f.finishCh <- finishCall{broadcastID, reason}
+func (f *fakeBackend) Finish(_ context.Context, broadcastID, broadcastToken, reason string) error {
+	f.finishCh <- finishCall{broadcastID, broadcastToken, reason}
 	return nil
 }
 
@@ -578,6 +578,46 @@ func TestTickReportsHealthAndAppliesThrottle(t *testing.T) {
 	ct, err := protocol.PeekControlType(last.Body)
 	if err != nil || ct != protocol.ControlThrottleInstruction {
 		t.Fatalf("expected ControlThrottleInstruction, got %v (err=%v)", ct, err)
+	}
+}
+
+func TestTickReportsSentBitrateFromBytesActuallyWrittenSinceLastTick(t *testing.T) {
+	fixedNow := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	backend := newFakeBackend()
+	backend.verifyResult = backendclient.VerifyResult{Valid: true, BroadcastID: "b-1"}
+	pub := &fakePublisher{}
+	fw := &fakeFrameWriter{}
+	deps := Deps{
+		Backend:    backend,
+		Now:        func() time.Time { return fixedNow },
+		DialIngest: func(addr, streamKey string) (Publisher, error) { return pub, nil },
+	}
+	session := NewSession(deps, fw)
+	mustNone(t, session.HandleFrame(context.Background(), startNoticeFrame("s1", "t1", "p")))
+	mustNone(t, session.HandleFrame(context.Background(), videoConfigFrame([]byte{0x01})))
+	mustNone(t, session.HandleFrame(context.Background(), audioConfigFrame([]byte{0x11, 0x90})))
+
+	// 1000バイトの映像フレームを1本、キューへ積んで送出させる。
+	payload := bytes.Repeat([]byte{0xAB}, 1000)
+	mustNone(t, session.HandleFrame(context.Background(), videoFrame(1, true, payload)))
+	session.DrainOnce()
+
+	// 1秒後にTickを呼ぶと、直前1秒間で送出した1000バイト分からビットレートを算出する。
+	t1 := fixedNow.Add(1 * time.Second)
+	mustNone(t, session.Tick(context.Background(), t1))
+
+	sample := mustRecvHealth(t, backend.healthCh)
+	// 1000 bytes * 8 / 1000 / 1s = 8 kbps
+	if sample.SentBitrateKbps != 8 {
+		t.Errorf("SentBitrateKbps = %d, want 8", sample.SentBitrateKbps)
+	}
+
+	// 次のTick（送出なし）ではリセットされ0に戻る。
+	t2 := t1.Add(1 * time.Second)
+	mustNone(t, session.Tick(context.Background(), t2))
+	sample2 := mustRecvHealth(t, backend.healthCh)
+	if sample2.SentBitrateKbps != 0 {
+		t.Errorf("SentBitrateKbps (2nd tick, no traffic) = %d, want 0", sample2.SentBitrateKbps)
 	}
 }
 

@@ -27,6 +27,8 @@ services:
       - RAILS_ENV=development
       # 本番相当のシークレットは環境変数で渡す（.envはコミット対象外。詳細は.env.exampleを参照）
       - RAILS_MASTER_KEY=${RAILS_MASTER_KEY:-}
+      # フロントエンド（別オリジン）からのCORS許可オリジン（config/initializers/cors.rb参照）
+      - FRONTEND_ORIGIN=http://localhost:3000
 
   relay:
     build:

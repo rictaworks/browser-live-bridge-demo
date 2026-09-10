@@ -2,7 +2,8 @@
 #
 # Railway内部通信のみを想定し外部公開しない。資格情報を要する外部通信ではないため
 # requirements.md 21節（オーナーキー・トークンによる保護）の直接の対象外だが、
-# health_samples/events/finishは中継サーバーが自ら発行した配信IDのみを送ってくる前提とする。
+# 多層防御として、health_samples/events/finishはverifyと同様にid×broadcast_tokenの
+# 組が一致するレコードのみを対象とする（idだけの推測では書き込めないようにする）。
 module Internal
   class BroadcastsController < ActionController::API
     rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
@@ -18,7 +19,7 @@ module Internal
 
     # POST /internal/broadcasts/:id/health_samples
     def health_samples
-      broadcast = Broadcast.find(params[:id])
+      broadcast = find_verified_broadcast!
       broadcast.health_samples.create!(
         session_id: broadcast.session_id,
         sampled_at: Time.current,
@@ -34,7 +35,7 @@ module Internal
 
     # POST /internal/broadcasts/:id/events
     def events
-      broadcast = Broadcast.find(params[:id])
+      broadcast = find_verified_broadcast!
       broadcast.broadcast_events.create!(
         session_id: broadcast.session_id,
         occurred_at: Time.current,
@@ -47,7 +48,7 @@ module Internal
     # POST /internal/broadcasts/:id/finish
     # 配信終了記録・ロック解放（requirements.md 16.1節・16.5節）。
     def finish
-      broadcast = Broadcast.find(params[:id])
+      broadcast = find_verified_broadcast!
       unless broadcast.ended?
         broadcast.update!(
           state: "ended",
@@ -66,6 +67,11 @@ module Internal
     end
 
     private
+
+    # id×broadcast_tokenの組が一致するレコードのみを返す（多層防御）。
+    def find_verified_broadcast!
+      Broadcast.find_by!(id: params[:id], broadcast_token: params.require(:broadcast_token))
+    end
 
     def render_not_found
       render json: { error: "not_found" }, status: :not_found
