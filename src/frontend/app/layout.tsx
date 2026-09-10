@@ -27,7 +27,7 @@ const geistMono = Geist_Mono({
 const GA_MEASUREMENT_ID = "G-C04W1XKS16";
 
 export const metadata: Metadata = {
-  title: "Browser Live Bridge Demo",
+  title: "ブラウザ配信デモ",
   description: "ブラウザのタブを開くだけでライブ配信を体験できるデモ版展示物です。",
 };
 
