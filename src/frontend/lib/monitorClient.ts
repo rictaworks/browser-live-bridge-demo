@@ -22,6 +22,10 @@ export type MonitorState = "connecting" | "live" | "ended" | "unreachable";
 
 export interface MonitorWebSocketLike {
   readonly readyState: number;
+  // ブラウザのWebSocketは既定でbinaryType="blob"のため、二進メッセージが
+  // ArrayBufferとしてではなくBlobとして届く。設定し忘れるとhandleMessageの
+  // instanceof判定に一致せず全フレームが無言で破棄される（実機で確認した障害）。
+  binaryType: string;
   close(): void;
   set onopen(handler: (() => void) | null);
   set onclose(handler: ((event: { code: number; reason: string }) => void) | null);
@@ -64,6 +68,7 @@ export class MonitorClient {
   connect(): void {
     this.setState("connecting");
     const ws = new this.options.WebSocketCtor(this.options.url);
+    ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => this.setState("live");
     ws.onclose = () => {

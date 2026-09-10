@@ -3,6 +3,7 @@ import { MonitorClient, type MonitorState, type MonitorWebSocketLike } from "./m
 class FakeWebSocket implements MonitorWebSocketLike {
   static instances: FakeWebSocket[] = [];
   readyState = 0;
+  binaryType = "blob"; // 実ブラウザの既定値を模擬する
   onopen: (() => void) | null = null;
   onclose: ((event: { code: number; reason: string }) => void) | null = null;
   onerror: ((event: unknown) => void) | null = null;
@@ -51,6 +52,16 @@ describe("MonitorClient", () => {
 
     FakeWebSocket.instances[0].simulateOpen();
     expect(states).toEqual(["connecting", "live"]);
+  });
+
+  it("connect()はWebSocketのbinaryTypeをarraybufferに設定する（既定のblobのままだと全フレームが無言で破棄される。実機で確認した障害）", () => {
+    const client = new MonitorClient({
+      url: "ws://relay.example/ws/monitor/token1",
+      WebSocketCtor: FakeWebSocket,
+      onData: () => {},
+    });
+    client.connect();
+    expect(FakeWebSocket.instances[0].binaryType).toBe("arraybuffer");
   });
 
   it("受信したバイト列をそのままonDataへ転送する（FLVタグ列はそのままflv.js側へ）", () => {
