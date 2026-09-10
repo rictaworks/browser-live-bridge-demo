@@ -4,6 +4,7 @@ import type { MonitorState, MonitorWebSocketLike } from "./monitorClient";
 class FakeWebSocket implements MonitorWebSocketLike {
   static instances: FakeWebSocket[] = [];
   readyState = 0;
+  binaryType = "blob";
   onopen: (() => void) | null = null;
   onclose: ((event: { code: number; reason: string }) => void) | null = null;
   onerror: ((event: unknown) => void) | null = null;
