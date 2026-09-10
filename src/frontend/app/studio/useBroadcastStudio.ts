@@ -146,6 +146,7 @@ export function useBroadcastStudio() {
   const videoEncoderRef = useRef<VideoEncoderPipeline | null>(null);
   const audioEncoderRef = useRef<AudioEncoderPipeline | null>(null);
   const audioEncoderClosedRef = useRef<boolean>(false);
+  const videoEncoderClosedRef = useRef<boolean>(false);
   const sessionKeyRef = useRef<string>("");
   const audiencePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -182,7 +183,7 @@ export function useBroadcastStudio() {
     const mediaClock = mediaClockRef.current;
     const canvas = canvasRef.current;
     const videoEncoder = videoEncoderRef.current;
-    if (!compositor || !sourceManager || !mediaClock || !canvas || !videoEncoder) {
+    if (!compositor || !sourceManager || !mediaClock || !canvas || !videoEncoder || videoEncoderClosedRef.current) {
       return;
     }
     const ctx = canvas.getContext("2d");
@@ -303,6 +304,7 @@ export function useBroadcastStudio() {
       const VideoEncoderCtorRef = VideoEncoder as unknown as VideoEncoderCtor;
       const AudioEncoderCtorRef = AudioEncoder as unknown as AudioEncoderCtor;
 
+      videoEncoderClosedRef.current = false;
       videoEncoderRef.current = new VideoEncoderPipeline({
         profile: DEFAULT_ENCODE_PROFILE,
         VideoEncoderCtor: VideoEncoderCtorRef,
@@ -322,7 +324,14 @@ export function useBroadcastStudio() {
         onConfig: (chunk) => {
           sendMediaFrame({ type: "video_config", keyframe: true, timestampUs: chunk.timestampUs, body: chunk.data });
         },
-        onError: (err) => pushEvent({ occurredAt: Date.now(), type: "broadcast_failed", detail: err.message }),
+        onError: (err) => {
+          // WebCodecsのVideoEncoderはエラー後closed状態になり、以降のencode()は
+          // 例外を投げ続ける（drawFrameはcomposition workerのtickごとに毎回呼ばれる
+          // ため、無捕捉のまま暴走する）。音声側(audioEncoderClosedRef)と同様に
+          // 閉塞を記録して以降の呼び出しを止める。
+          videoEncoderClosedRef.current = true;
+          pushEvent({ occurredAt: Date.now(), type: "broadcast_failed", detail: err.message });
+        },
       });
 
       audioEncoderClosedRef.current = false;
