@@ -1,16 +1,16 @@
 # Be sure to restart your server when you modify this file.
 
-# Avoid CORS issues when API is called from the frontend app.
-# Handle Cross-Origin Resource Sharing (CORS) in order to accept cross-origin Ajax requests.
+# フロントエンド（Next.js、別オリジン）がCookieセッション（credentials: "include"）付きで
+# /api/**を呼ぶ構成のため、CORSを有効化する（requirements.md 9節、issue #4）。
+# 許可オリジンはFRONTEND_ORIGINで明示指定する（credentials併用時は "*" を指定できない）。
+# 未設定時は開発環境（docker compose）のフロントエンドオリジンを既定値とする。
+Rails.application.config.middleware.insert_before 0, Rack::Cors do
+  allow do
+    origins ENV.fetch("FRONTEND_ORIGIN", "http://localhost:3000")
 
-# Read more: https://github.com/cyu/rack-cors
-
-# Rails.application.config.middleware.insert_before 0, Rack::Cors do
-#   allow do
-#     origins "example.com"
-#
-#     resource "*",
-#       headers: :any,
-#       methods: [:get, :post, :put, :patch, :delete, :options, :head]
-#   end
-# end
+    resource "/api/*",
+      headers: :any,
+      methods: [ :get, :post, :put, :patch, :delete, :options ],
+      credentials: true
+  end
+end

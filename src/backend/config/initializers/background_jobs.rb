@@ -26,6 +26,10 @@ Rails.application.config.after_initialize do
 
       begin
         if DailyResetService.due?(last_run_on: last_daily_reset_on)
+          # DailyResetJobはDEFAULT_GRACE_PERIOD（既定30秒）分sleepするため、同一スレッド・
+          # 同一ループで直列実行しているこのループは日次リセット中の間ReclaimStaleLocksJobを
+          # 呼び出さない。デモ規模では実害はないが、本番相当の運用に発展させる場合は
+          # 別スレッド・別ジョブキューに分離することを推奨する。
           DailyResetJob.perform_now
           last_daily_reset_on = Time.current.in_time_zone("Asia/Tokyo").to_date
         end
