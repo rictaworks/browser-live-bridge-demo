@@ -78,7 +78,7 @@
 }
 
 .section {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
   border-radius: 0.75rem;
   padding: 1rem 1.25rem;
   display: flex;
@@ -127,9 +127,11 @@
 .field input[type="text"],
 .field select {
   padding: 0.45rem 0.6rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--input-border-color);
   border-radius: 0.4rem;
   font-size: 0.9rem;
+  color: var(--foreground);
+  background: var(--background);
 }
 
 .button {
@@ -138,12 +140,12 @@
   gap: 0.4rem;
   padding: 0.5rem 0.9rem;
   border-radius: 0.4rem;
-  border: 1px solid #d1d5db;
-  background: #f9fafb;
+  border: 1px solid var(--input-border-color);
+  background: var(--card-background);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  color: inherit;
+  color: var(--foreground);
 }
 
 .button:disabled {
@@ -177,7 +179,7 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.5rem 0.6rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
   border-radius: 0.5rem;
   font-size: 0.85rem;
 }
@@ -225,13 +227,13 @@
   flex-direction: column;
   gap: 0.15rem;
   padding: 0.5rem 0.6rem;
-  background: #f9fafb;
+  background: var(--card-background);
   border-radius: 0.4rem;
 }
 
 .healthLabel {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--muted-foreground);
 }
 
 .healthValue {
@@ -265,7 +267,7 @@
   flex: 1;
   min-width: 0;
   padding: 0.4rem 0.5rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--input-border-color);
   border-radius: 0.4rem;
   font-size: 0.8rem;
   color: inherit;
@@ -279,7 +281,7 @@
 
 .simulatedNote {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--muted-foreground);
 }
 
 .chatList {
@@ -296,16 +298,17 @@
   font-size: 0.85rem;
   padding: 0.35rem 0.5rem;
   border-radius: 0.4rem;
-  background: #f9fafb;
+  background: var(--card-background);
+  color: var(--foreground);
 }
 
 .chatMessage[data-origin="broadcaster"] {
-  background: #eff6ff;
+  background: var(--card-background-accent);
 }
 
 .chatAuthor {
   font-weight: 700;
-  color: #374151;
+  color: var(--muted-foreground);
   flex-shrink: 0;
 }
 
@@ -318,9 +321,11 @@
   flex: 1;
   min-width: 0;
   padding: 0.45rem 0.6rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--input-border-color);
   border-radius: 0.4rem;
   font-size: 0.85rem;
+  color: var(--foreground);
+  background: var(--background);
 }
 
 .eventLog {
@@ -336,17 +341,17 @@
   display: flex;
   gap: 0.5rem;
   padding: 0.3rem 0.4rem;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .eventTime {
-  color: #9ca3af;
+  color: var(--muted-foreground);
   flex-shrink: 0;
 }
 
 .emptyNote {
   font-size: 0.8rem;
-  color: #9ca3af;
+  color: var(--muted-foreground);
 }
 
 /* ハニーポット欄（requirements.md 21節）。人間の利用者には見えない位置に

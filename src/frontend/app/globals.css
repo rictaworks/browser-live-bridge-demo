@@ -1,13 +1,19 @@
 :root {
+  /* OSのダークモード設定に関わらずライトテーマに固定する（本人決定）。
+     以前はprefers-color-schemeでダーク値へ切り替えていたが、配信スタジオ・
+     モニター画面の各所に残っていたテーマ非対応の決め打ち色（背景は明色の
+     ままでテキストだけ前景色を継承する等）が環境によって文字が読めなくなる
+     実害を起こしたため、単一テーマに寄せて解消する。 */
   --background: #ffffff;
   --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* 配信スタジオ・モニター画面のカード内小要素用（requirements.mdの意匠指定外の補助トークン）。 */
+  --muted-foreground: #4b5563;
+  --card-background: #f9fafb;
+  --card-background-accent: #eff6ff;
+  --border-color: #e5e7eb;
+  --input-border-color: #d1d5db;
+  /* ネイティブフォームコントロール（select等）の配色もライトへ固定する。 */
+  color-scheme: light;
 }
 
 html {
@@ -40,10 +46,4 @@ body {
 a {
   color: inherit;
   text-decoration: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
 }
