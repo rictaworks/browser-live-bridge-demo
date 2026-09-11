@@ -173,15 +173,52 @@
   gap: 0.5rem;
 }
 
+.sourceRowWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+}
+
 .sourceRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.5rem 0.6rem;
-  border: 1px solid var(--border-color);
-  border-radius: 0.5rem;
   font-size: 0.85rem;
+}
+
+/* Issue #35: 配信開始前のカメラ・マイク確認用プレビュー。 */
+.cameraPreviewThumb {
+  width: 160px;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 0.4rem;
+  background: #000;
+  object-fit: cover;
+}
+
+.micLevelMeter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.micLevelTrack {
+  flex: 1;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--border-color);
+  overflow: hidden;
+}
+
+.micLevelFill {
+  height: 100%;
+  border-radius: 999px;
+  background: #16a34a;
+  transition: width 0.1s linear;
 }
 
 .sourceLabel {

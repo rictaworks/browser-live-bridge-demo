@@ -121,6 +121,11 @@ export function useBroadcastStudio() {
   const [broadcastToken, setBroadcastToken] = useState<string | null>(null);
   const [audience, setAudience] = useState<AudienceInfo>({ viewerCount: 0, messages: [] });
   const [serverEvents, setServerEvents] = useState<BroadcastEventRecord[]>([]);
+  // Issue #35: 配信開始前でもカメラ・マイクを確認できるようにする。合成・
+  // 符号化パイプライン（drawFrame・AudioEncoderPipeline等）とは独立した
+  // プレビュー専用の経路とし、既存の配信ロジックには一切影響しない。
+  const [cameraPreviewStream, setCameraPreviewStream] = useState<MediaStream | null>(null);
+  const [micLevel, setMicLevel] = useState(0);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoElementsRef = useRef<Partial<Record<SourceKind, HTMLVideoElement>>>({});
@@ -132,6 +137,10 @@ export function useBroadcastStudio() {
   const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveAudioSourceCountRef = useRef(0);
+  // Issue #35: マイクの音量レベルメーター用。エンコード用の音声グラフ
+  // （source -> gain -> processor）とは別に、sourceから並行してタップする。
+  const micAnalyserRef = useRef<AnalyserNode | null>(null);
+  const micLevelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // ライブ中盤でのvideo_config/audio_config自動再送を「最初の1回だけ」に
   // 抑えるためのフラグ。理由はonConfig配線側のコメントを参照。
   const videoConfigAutoSentRef = useRef(false);
@@ -513,12 +522,24 @@ export function useBroadcastStudio() {
     nodes.gain.disconnect();
     delete audioNodesRef.current[kind];
     liveAudioSourceCountRef.current = Math.max(0, liveAudioSourceCountRef.current - 1);
+    if (kind === "mic") {
+      if (micLevelTimerRef.current !== null) {
+        clearInterval(micLevelTimerRef.current);
+        micLevelTimerRef.current = null;
+      }
+      micAnalyserRef.current?.disconnect();
+      micAnalyserRef.current = null;
+      setMicLevel(0);
+    }
   }, []);
 
   const detachSource = useCallback(
     (kind: SourceKind) => {
       sourceManagerRef.current?.detach(kind);
       delete videoElementsRef.current[kind];
+      if (kind === "camera") {
+        setCameraPreviewStream(null);
+      }
       if (kind === "mic" || kind === "tab_audio") {
         disconnectAudioSource(kind);
       }
@@ -596,6 +617,10 @@ export function useBroadcastStudio() {
       el.srcObject = new MediaStream([videoTrack]);
       void el.play().catch(() => undefined);
       videoElementsRef.current[kind] = el;
+      if (kind === "camera") {
+        // Issue #35: 配信開始前でもカメラ映像を確認できるようにする。
+        setCameraPreviewStream(el.srcObject as MediaStream);
+      }
       if (audioTrack) {
         bindAudioTrack("tab_audio", audioTrack);
       }
@@ -609,6 +634,25 @@ export function useBroadcastStudio() {
       source.connect(gain);
       gain.connect(ensureAudioProcessor(ctx));
       audioNodesRef.current[kind] = { source, gain };
+      if (kind === "mic") {
+        // Issue #35: 配信開始前でもマイクの音量を確認できるようにする。
+        // エンコード用のグラフ（source -> gain -> processor）には手を加えず、
+        // sourceから並行してAnalyserNodeへタップするだけの副経路とする。
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+        micAnalyserRef.current = analyser;
+        const levels = new Uint8Array(analyser.frequencyBinCount);
+        micLevelTimerRef.current = setInterval(() => {
+          analyser.getByteTimeDomainData(levels);
+          let sumSq = 0;
+          for (let i = 0; i < levels.length; i++) {
+            const centered = (levels[i] - 128) / 128;
+            sumSq += centered * centered;
+          }
+          setMicLevel(Math.sqrt(sumSq / levels.length));
+        }, 100);
+      }
       // disconnectAudioSource()側の減算と対になる加算がここに漏れていたため、
       // liveAudioSourceCountRefが常に0のまま（実機で確認した障害）。0のままだと
       // startSilenceFallback()の無音生成が実マイク入力と並行して動き続け、
@@ -655,6 +699,12 @@ export function useBroadcastStudio() {
       // （requirements.md 8節「マイクの喪失→無音生成に切替え」に反する）。
       if (event.state === "lost" && (event.kind === "mic" || event.kind === "tab_audio")) {
         disconnectAudioSource(event.kind);
+      }
+      // Issue #35: カメラの喪失時もプレビューを閉じる（detachSource()経由の
+      // 明示的な解除と違い、こちらもsetCameraPreviewStream(null)を誰も
+      // 呼ばないため、喪失後も直前の映像が表示され続けてしまう）。
+      if (event.state === "lost" && event.kind === "camera") {
+        setCameraPreviewStream(null);
       }
       // "requesting"（取得試行中）・"denied"（許可拒否）はUI上のバッジ表示
       // （SOURCE_STATE_LABELS）だけで表現し、イベントログには残さない。
@@ -777,6 +827,9 @@ export function useBroadcastStudio() {
       if (audiencePollRef.current !== null) {
         clearInterval(audiencePollRef.current);
       }
+      if (micLevelTimerRef.current !== null) {
+        clearInterval(micLevelTimerRef.current);
+      }
       stopSilenceFallback();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -793,6 +846,8 @@ export function useBroadcastStudio() {
     audience,
     serverEvents,
     canvasRef,
+    cameraPreviewStream,
+    micLevel,
     start,
     stop,
     attachSource,
