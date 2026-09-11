@@ -231,6 +231,23 @@ describe("TransportChannel", () => {
     expect(ok).toBe(false);
   });
 
+  it("sendRaw()は接続中ならバイト列をそのまま送信し、未接続ならfalseを返す（再接続後のSendQueue退避フレーム再送用）", () => {
+    const channel = new TransportChannel({
+      url: "ws://relay.example/ws/publish",
+      WebSocketCtor: FakeWebSocket as never,
+      onControl: () => {},
+    });
+    const bytes = new Uint8Array([1, 2, 3]);
+    expect(channel.sendRaw(bytes)).toBe(false);
+
+    channel.connect("s", "t", DEFAULT_ENCODE_PROFILE);
+    const ws = FakeWebSocket.instances[0];
+    ws.simulateOpen();
+
+    expect(channel.sendRaw(bytes)).toBe(true);
+    expect(ws.sent[ws.sent.length - 1]).toEqual(bytes);
+  });
+
   it("reconnectNow()は待機を待たず即座に再接続を試みる", () => {
     jest.useFakeTimers();
     const channel = new TransportChannel({

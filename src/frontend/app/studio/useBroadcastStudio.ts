@@ -144,6 +144,7 @@ export function useBroadcastStudio() {
   const apiClientRef = useRef<BroadcastApiClient | null>(null);
   const controllerRef = useRef<BroadcastController | null>(null);
   const videoEncoderRef = useRef<VideoEncoderPipeline | null>(null);
+  const appliedBitrateKbpsRef = useRef<number | null>(null);
   const audioEncoderRef = useRef<AudioEncoderPipeline | null>(null);
   const audioEncoderClosedRef = useRef<boolean>(false);
   const videoEncoderClosedRef = useRef<boolean>(false);
@@ -174,6 +175,29 @@ export function useBroadcastStudio() {
         enqueuedAtMs: Date.now(),
         payload: encodeFrame(frame),
       });
+    }
+  }, []);
+
+  /** 再接続直後に、切断中SendQueueへ退避されていたフレームを送り届ける。
+   * 音声フレーム・キーフレームは破棄対象外（requirements.md 7節）のため、
+   * 切断中は送信を保留しているだけで、接続復帰後にこれを送らないと
+   * 「滞留時間」（キュー内最古フレームの経過時間）が再接続後も回復せず
+   * 増え続けたまま高止まりする（実機で20万msを超えるまで増え続ける
+   * 障害として確認済み）。SendQueueItem.payloadは送信直前に既に
+   * encodeFrame()済みのバイト列のため、TransportChannel.sendRaw()で
+   * そのまま送る（再エンコード・組み立て直しは行わない）。
+   * 呼び出しは必ずvideo_config/audio_configの再送後にすること。中継は
+   * 再接続のたびに新しいセッションとして扱い、設定情報を受け取るまで
+   * 映像・音声フレームを無言で破棄するため（6.7節）、逆順だと退避
+   * フレームがまるごと中継側で破棄される。 */
+  const flushSendQueue = useCallback(() => {
+    const queue = sendQueueRef.current;
+    const transport = transportRef.current;
+    if (!queue || !transport) {
+      return;
+    }
+    for (const item of queue.drainAll()) {
+      transport.sendRaw(item.payload);
     }
   }, []);
 
@@ -305,6 +329,16 @@ export function useBroadcastStudio() {
       const AudioEncoderCtorRef = AudioEncoder as unknown as AudioEncoderCtor;
 
       videoEncoderClosedRef.current = false;
+      // 新しいVideoEncoderPipelineはprofile.videoBitrateInitialKbpsから始まるため、
+      // 前回配信終了時点の適用済みビットレートの記憶をここでリセットする
+      // （リセットしないと、たまたま今回最初のevaluate()の値と一致した場合に
+      // setBitrate()がスキップされ、表示上のtargetBitrateKbpsと実際の
+      // エンコーダ設定が食い違ったままになる）。
+      appliedBitrateKbpsRef.current = null;
+      // sendQueueはhookマウント時に1度だけ生成される参照のため、前回配信の
+      // 残留フレーム（切断中に溜まったもの等）が同一ページセッション内の
+      // 次の配信へ持ち越されないよう、配信開始のたびに明示的に空にする。
+      sendQueueRef.current?.clear();
       videoEncoderRef.current = new VideoEncoderPipeline({
         profile: DEFAULT_ENCODE_PROFILE,
         VideoEncoderCtor: VideoEncoderCtorRef,
@@ -581,7 +615,19 @@ export function useBroadcastStudio() {
       url: `${RELAY_WS_URL}/ws/publish`,
       WebSocketCtor: WebSocket as unknown as new (url: string) => never,
       onControl: (message) => controllerRef.current?.handleControl(message),
-      onOpen: (isReconnect) => controllerRef.current?.handleTransportOpen(isReconnect),
+      onOpen: (isReconnect) => {
+        // 中継は再接続のたびに新しいセッションとして扱い、video_config・
+        // audio_configを受け取るまで映像・音声フレームを無言で破棄する
+        // （requirements.md 6.7節）。そのためhandleTransportOpen()による
+        // 設定情報の再送を必ず先に行い、その後で退避フレームを再送する。
+        // 逆順にすると、再送したはずの退避フレーム（音声・キーフレーム）が
+        // 中継の「設定情報待ち」状態で丸ごと破棄されてしまう
+        // （実機に近い構成でのreviewer指摘により発覚・修正）。
+        controllerRef.current?.handleTransportOpen(isReconnect);
+        if (isReconnect) {
+          flushSendQueue();
+        }
+      },
       onClose: () => controllerRef.current?.handleTransportClose(),
       onReconnectFailed: () => controllerRef.current?.handleReconnectFailed(),
     });
@@ -607,7 +653,19 @@ export function useBroadcastStudio() {
           sendMediaFrame({ type: "audio_config", keyframe: true, timestampUs: audioConfig.timestampUs, body: audioConfig.data });
         }
       },
-      onBitrateChange: (kbps) => setHealth((prev) => ({ ...prev, targetBitrateKbps: kbps })),
+      onBitrateChange: (kbps) => {
+        // 表示の更新だけでなく、実際のエンコーダへも反映する（requirements.md 7節）。
+        // これが漏れていたため、劣化検知・抑制指示はイベントログ上は機能していても
+        // 実際の送出データ量が一切減らず、送出キューが際限なく膨張し続けていた
+        // （実機で滞留時間が20万msを超えるまで成長する障害を確認）。
+        // evaluateTick()は毎秒onBitrateChangeを呼ぶため、値が変化した時のみ
+        // setBitrate()する（無変化での毎秒の再設定・config再送信を避ける）。
+        if (appliedBitrateKbpsRef.current !== kbps) {
+          appliedBitrateKbpsRef.current = kbps;
+          videoEncoderRef.current?.setBitrate(kbps);
+        }
+        setHealth((prev) => ({ ...prev, targetBitrateKbps: kbps }));
+      },
     });
     controllerRef.current = controller;
 

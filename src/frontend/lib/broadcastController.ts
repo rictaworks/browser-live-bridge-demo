@@ -144,7 +144,12 @@ export class BroadcastController {
     this.startEvaluateLoop();
   }
 
-  /** TransportChannel.onOpen(isReconnect)からのブリッジ。 */
+  /** TransportChannel.onOpen(isReconnect)からのブリッジ。
+   * 切断中にSendQueueへ退避されていたフレーム（音声・キーフレームは7節により
+   * 破棄対象外のため必ずここに残っている）の再送は、実際の送信経路を持つ
+   * 呼び出し側（app/studio）の責務とする。このクラスはブラウザAPIに依存しない
+   * 状態機械であるため、再送そのものではなく「再接続した」という通知のみを
+   * 担う。 */
   handleTransportOpen(isReconnect: boolean): void {
     this.options.onResendConfig?.();
     if (isReconnect) {

@@ -215,6 +215,18 @@ export class TransportChannel {
     return true;
   }
 
+  /** 既にencodeFrame()済みのバイト列をそのまま送信する（SendQueueへ退避されていた
+   * 切断中の滞留フレームを、再接続後に再送するためのもの。requirements.md 7節：
+   * 音声フレーム・キーフレームは破棄対象としないため、切断中は送信を保留する
+   * だけで、接続復帰後は送り届ける必要がある）。 */
+  sendRaw(bytes: Uint8Array): boolean {
+    if (!this.connected || !this.ws) {
+      return false;
+    }
+    this.ws.send(bytes);
+    return true;
+  }
+
   sendControl(message: ControlMessage): boolean {
     if (!this.ws || this.ws.readyState !== WS_OPEN) {
       return false;
