@@ -185,7 +185,11 @@ export function useBroadcastStudio() {
    * 増え続けたまま高止まりする（実機で20万msを超えるまで増え続ける
    * 障害として確認済み）。SendQueueItem.payloadは送信直前に既に
    * encodeFrame()済みのバイト列のため、TransportChannel.sendRaw()で
-   * そのまま送る（再エンコード・組み立て直しは行わない）。 */
+   * そのまま送る（再エンコード・組み立て直しは行わない）。
+   * 呼び出しは必ずvideo_config/audio_configの再送後にすること。中継は
+   * 再接続のたびに新しいセッションとして扱い、設定情報を受け取るまで
+   * 映像・音声フレームを無言で破棄するため（6.7節）、逆順だと退避
+   * フレームがまるごと中継側で破棄される。 */
   const flushSendQueue = useCallback(() => {
     const queue = sendQueueRef.current;
     const transport = transportRef.current;
@@ -612,13 +616,17 @@ export function useBroadcastStudio() {
       WebSocketCtor: WebSocket as unknown as new (url: string) => never,
       onControl: (message) => controllerRef.current?.handleControl(message),
       onOpen: (isReconnect) => {
+        // 中継は再接続のたびに新しいセッションとして扱い、video_config・
+        // audio_configを受け取るまで映像・音声フレームを無言で破棄する
+        // （requirements.md 6.7節）。そのためhandleTransportOpen()による
+        // 設定情報の再送を必ず先に行い、その後で退避フレームを再送する。
+        // 逆順にすると、再送したはずの退避フレーム（音声・キーフレーム）が
+        // 中継の「設定情報待ち」状態で丸ごと破棄されてしまう
+        // （実機に近い構成でのreviewer指摘により発覚・修正）。
+        controllerRef.current?.handleTransportOpen(isReconnect);
         if (isReconnect) {
-          // 古い滞留フレームを先に送り届けてから、handleTransportOpen()が
-          // 発行する新しい基準点（設定情報の再送・強制キーフレーム）を送る
-          // 順序にする（時系列を保つ）。
           flushSendQueue();
         }
-        controllerRef.current?.handleTransportOpen(isReconnect);
       },
       onClose: () => controllerRef.current?.handleTransportClose(),
       onReconnectFailed: () => controllerRef.current?.handleReconnectFailed(),
