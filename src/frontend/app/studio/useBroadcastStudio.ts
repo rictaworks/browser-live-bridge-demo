@@ -233,6 +233,23 @@ export function useBroadcastStudio() {
       pushEvent({ occurredAt: Date.now(), type: "gap_filled", detail: `${gap.durationMs}ms` });
     }
 
+    // requirements.md 6.5節「キーフレーム間隔 2秒」。実時計のタイマーではなく
+    // メディアクロックのフレーム番号で判定する（6.5節「時刻はメディアクロックで
+    // 採番すること...実時計を用いないこと」との整合。タブの非アクティブ化・
+    // 最小化時も合成ループ自体は規定fpsで継続する設計（6.3節）のため、この
+    // カウンタも実時計非依存のまま正しく2秒間隔を保つ）。中継は保持期間
+    // （既定8秒）より古いキーフレームを追跡できず、新規視聴者のcatchUpに
+    // 一切の映像フレームが含まれないまま後続のキーフレームを永久に待ち続ける
+    // 障害につながっていた（実機確認：定期発行が存在せず、配信開始直後の
+    // 初回1回・再接続時・タイムギャップ補填時以外にキーフレームが一切発行
+    // されていなかった）。
+    const keyframeIntervalFrames = Math.round(
+      DEFAULT_ENCODE_PROFILE.fps * DEFAULT_ENCODE_PROFILE.keyframeIntervalSec,
+    );
+    if (mediaClock.videoFrameIndex % keyframeIntervalFrames === 0) {
+      videoEncoder.forceKeyframe();
+    }
+
     if (primaryHandle.kind === "test") {
       ctx.fillStyle = "#000000";
       ctx.fillRect(0, 0, compositor.width, compositor.height);
