@@ -49,12 +49,19 @@ module App
     # フロントエンド（Vercel）とアプリケーション層（Railway）は本番では別オリジンに
     # なるため、same_site: :lax ではクロスサイトfetchにCookieが付与されず、
     # 作成直後のリクエスト以外がすべて404（session_idが毎回変わり所有権スコープに
-    # 一致しなくなるため）になる。same_site: :none には secure 属性が必須（仕様上）で、
-    # 開発環境はhttp://localhostのためsecure: trueだとCookie自体が送られなくなる。
-    # 本番（HTTPS）でのみsecureを有効にする。
+    # 一致しなくなるため）になる。same_site: :none には secure 属性が必須（仕様上）。
+    #
+    # 開発環境（docker compose）はNext.js側のrewrite（next.config.ts）により
+    # ブラウザからは常に同一オリジン（http://localhost:3000/api/**）として見える
+    # ため、same_site: :none自体が不要かつ有害。モダンブラウザは「SameSite=None
+    # のCookieはSecure属性が無いと保存しない」仕様を持ち、HTTPかHTTPSかに関わらず
+    # secure: falseのSameSite=NoneはCookie自体が保存されなかった（Issue #32で
+    # 実機確認：作成直後のリクエストも含め毎回新規session_idが発行され続けた）。
+    # 同一オリジンならsame_site: :lax（デフォルト挙動）で十分に成立するため、
+    # 本番（別オリジン・HTTPS）のみsame_site: :none + secureを使う。
     config.session_store :cookie_store,
       key: "_browser_live_bridge_demo_session",
-      same_site: :none,
+      same_site: Rails.env.production? ? :none : :lax,
       secure: Rails.env.production?
     config.middleware.use ActionDispatch::Cookies
     config.middleware.use config.session_store, config.session_options

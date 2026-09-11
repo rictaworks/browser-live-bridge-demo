@@ -10,7 +10,14 @@ services:
       - frontend_node_modules:/app/node_modules
       - frontend_next_cache:/app/.next
     environment:
-      - NEXT_PUBLIC_BACKEND_URL=http://localhost:3001
+      # backendへは直接fetchせず、next.config.tsのrewriteでNext.jsサーバー側から
+      # プロキシする（NEXT_PUBLIC_BACKEND_URLは意図的に未設定＝相対パスでの同一
+      # オリジン呼び出しにする）。理由はIssue #32：frontend:3000/backend:3001が
+      # 別オリジンかつHTTPの開発環境では、same_site: :noneのCookieがSecure属性
+      # なしでは保存されず、配信ロックのハートビートが継続できなかった。
+      # BACKEND_INTERNAL_URLはNext.jsサーバー（ブラウザではなくコンテナ内)専用で、
+      # dockerのサービス名解決でbackendコンテナへ到達する。
+      - BACKEND_INTERNAL_URL=http://backend:3001
       - NEXT_PUBLIC_RELAY_URL=http://localhost:3002
 
   backend:
