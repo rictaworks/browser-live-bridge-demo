@@ -182,16 +182,21 @@ export function useBroadcastStudio() {
     }
   }, []);
 
-  /** 再接続直後に、切断中SendQueueへ退避されていたフレームを送り届ける。
-   * 音声フレーム・キーフレームは破棄対象外（requirements.md 7節）のため、
-   * 切断中は送信を保留しているだけで、接続復帰後にこれを送らないと
-   * 「滞留時間」（キュー内最古フレームの経過時間）が再接続後も回復せず
-   * 増え続けたまま高止まりする（実機で20万msを超えるまで増え続ける
-   * 障害として確認済み）。SendQueueItem.payloadは送信直前に既に
-   * encodeFrame()済みのバイト列のため、TransportChannel.sendRaw()で
-   * そのまま送る（再エンコード・組み立て直しは行わない）。
+  /** 接続確立の直後（初回接続・再接続いずれも）に、送信できず
+   * SendQueueへ退避されていたフレームを送り届ける。音声フレーム・
+   * キーフレームは破棄対象外（requirements.md 7節）のため、未接続中は
+   * 送信を保留しているだけで、接続後にこれを送らないと「滞留時間」
+   * （キュー内最古フレームの経過時間）が回復せず増え続けたまま
+   * 高止まりする（実機で20万msを超えるまで増え続ける障害として確認済み）。
+   * 初回接続でも、WebSocketのopen完了よりエンコーダの最初の1フレーム
+   * 処理が先に終わり、video_config等がSendQueueへ積まれたまま送られない
+   * ケースがあるため（実機確認済み）、isReconnectに関係なく毎回呼ぶ。
+   * 何も積まれていなければdrainAll()は空配列を返すだけで無害。
+   * SendQueueItem.payloadは退避時点で既にencodeFrame()済みのバイト列の
+   * ため、TransportChannel.sendRaw()でそのまま送る
+   * （再エンコード・組み立て直しは行わない）。
    * 呼び出しは必ずvideo_config/audio_configの再送後にすること。中継は
-   * 再接続のたびに新しいセッションとして扱い、設定情報を受け取るまで
+   * 接続のたびに新しいセッションとして扱い、設定情報を受け取るまで
    * 映像・音声フレームを無言で破棄するため（6.7節）、逆順だと退避
    * フレームがまるごと中継側で破棄される。 */
   const flushSendQueue = useCallback(() => {
@@ -663,7 +668,7 @@ export function useBroadcastStudio() {
       WebSocketCtor: WebSocket as unknown as new (url: string) => never,
       onControl: (message) => controllerRef.current?.handleControl(message),
       onOpen: (isReconnect) => {
-        // 中継は再接続のたびに新しいセッションとして扱い、video_config・
+        // 中継は接続のたびに新しいセッションとして扱い、video_config・
         // audio_configを受け取るまで映像・音声フレームを無言で破棄する
         // （requirements.md 6.7節）。そのためhandleTransportOpen()による
         // 設定情報の再送を必ず先に行い、その後で退避フレームを再送する。
@@ -671,9 +676,18 @@ export function useBroadcastStudio() {
         // 中継の「設定情報待ち」状態で丸ごと破棄されてしまう
         // （実機に近い構成でのreviewer指摘により発覚・修正）。
         controllerRef.current?.handleTransportOpen(isReconnect);
-        if (isReconnect) {
-          flushSendQueue();
-        }
+        // 以前はisReconnectの時だけflushSendQueue()していたが、初回接続でも
+        // WebSocketのopen完了よりエンコーダの最初の1フレーム処理が先に
+        // 終わることがあり、その場合sendMediaFrame()はtransport.isConnected
+        // がまだfalseのためSendQueueへ積んでしまう（video_config等の重要
+        // フレームを含む）。isReconnect限定だと、以後一度も再接続しない
+        // 配信ではこの退避フレームが永久にSendQueueへ残ったまま送られず、
+        // 中継はvideo_config/audio_configの片方または両方を受け取れないまま
+        // stateAwaitingConfigに留まり続け、映像・音声が一切publishされない
+        // （reviewer指摘により発覚）。初回接続でも同様に退避分を送り届ける
+        // 必要があるため、isReconnectに関わらず常に呼ぶ。何も積まれていない
+        // 通常時はdrainAll()が空配列を返すだけで無害。
+        flushSendQueue();
       },
       onClose: () => controllerRef.current?.handleTransportClose(),
       onReconnectFailed: () => controllerRef.current?.handleReconnectFailed(),
