@@ -6,7 +6,7 @@
 // （このディレクトリのuseBroadcastStudio.ts）が担う。このコンポーネントは
 // その状態を画面へ描画する表示層に徹する。
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faCircle,
@@ -124,6 +124,21 @@ export default function StudioPage() {
   // 空のまま送信されることを期待する。フォームを機械的に全項目埋めて送信する
   // 単純なボットのみを検知する対策であり、reCAPTCHAは使用しない。
   const [hpField, setHpField] = useState("");
+
+  // Issue #35: 配信開始前でもカメラ映像を確認できるようにする。srcObjectは
+  // React側から直接propとして渡せないため、refを介して命令的に設定する。
+  const cameraPreviewRef = useRef<HTMLVideoElement | null>(null);
+  // <video>要素はカメラが"active"の間だけ条件付きでマウントされるため、
+  // cameraPreviewStreamの更新とisActiveの更新が別レンダーで起きた場合、
+  // 依存配列がstreamだけだとvideo要素マウント後にeffectが再実行されず
+  // srcObjectが設定されないままになる（実機で確認した障害）。isActiveの
+  // 変化も依存配列に含め、video要素がマウントされた直後にも必ず走らせる。
+  const isCameraActive = studio.sources.camera === "active";
+  useEffect(() => {
+    if (cameraPreviewRef.current) {
+      cameraPreviewRef.current.srcObject = studio.cameraPreviewStream;
+    }
+  }, [studio.cameraPreviewStream, isCameraActive]);
 
   const canStart = studio.capabilities.ok && studio.broadcastState === "idle";
   const canStop = !["idle", "stopping", "ended", "failed"].includes(studio.broadcastState);
@@ -261,47 +276,71 @@ export default function StudioPage() {
                 const state = studio.sources[kind];
                 const isActive = state === "active";
                 return (
-                  <div className={styles.sourceRow} key={kind}>
-                    <span className={styles.sourceLabel}>
-                      <FontAwesomeIcon icon={SOURCE_ICONS[kind]} />
-                      {SOURCE_LABELS[kind]}
-                    </span>
-                    <span className={styles.sourceStatus}>
-                      <FontAwesomeIcon
-                        icon={faCircle}
-                        className={styles.stateDot}
-                        data-tone={sourceStateTone(state)}
-                      />
-                      {SOURCE_STATE_LABELS[state]}
-                      {kind === "tab_audio" ? (
-                        isActive ? (
+                  <div className={styles.sourceRowWrap} key={kind}>
+                    <div className={styles.sourceRow}>
+                      <span className={styles.sourceLabel}>
+                        <FontAwesomeIcon icon={SOURCE_ICONS[kind]} />
+                        {SOURCE_LABELS[kind]}
+                      </span>
+                      <span className={styles.sourceStatus}>
+                        <FontAwesomeIcon
+                          icon={faCircle}
+                          className={styles.stateDot}
+                          data-tone={sourceStateTone(state)}
+                        />
+                        {SOURCE_STATE_LABELS[state]}
+                        {kind === "tab_audio" ? (
+                          isActive ? (
+                            <button
+                              type="button"
+                              className={styles.button}
+                              onClick={() => studio.detachSource(kind)}
+                            >
+                              <FontAwesomeIcon icon={faXmark} />
+                              利用停止
+                            </button>
+                          ) : (
+                            <span className={styles.emptyNote}>画面共有と同時に自動取得されます</span>
+                          )
+                        ) : isActive ? (
+                          <button type="button" className={styles.button} onClick={() => studio.detachSource(kind)}>
+                            <FontAwesomeIcon icon={faXmark} />
+                            解除
+                          </button>
+                        ) : (
                           <button
                             type="button"
                             className={styles.button}
-                            onClick={() => studio.detachSource(kind)}
+                            onClick={() => studio.attachSource(kind)}
+                            disabled={state === "requesting"}
                           >
-                            <FontAwesomeIcon icon={faXmark} />
-                            利用停止
+                            取得
                           </button>
-                        ) : (
-                          <span className={styles.emptyNote}>画面共有と同時に自動取得されます</span>
-                        )
-                      ) : isActive ? (
-                        <button type="button" className={styles.button} onClick={() => studio.detachSource(kind)}>
-                          <FontAwesomeIcon icon={faXmark} />
-                          解除
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className={styles.button}
-                          onClick={() => studio.attachSource(kind)}
-                          disabled={state === "requesting"}
-                        >
-                          取得
-                        </button>
-                      )}
-                    </span>
+                        )}
+                      </span>
+                    </div>
+                    {/* Issue #35: 配信を開始していなくても、取得済みの
+                        カメラ・マイクをその場で確認できるようにする。 */}
+                    {kind === "camera" && isActive && (
+                      <video
+                        ref={cameraPreviewRef}
+                        autoPlay
+                        muted
+                        playsInline
+                        className={styles.cameraPreviewThumb}
+                      />
+                    )}
+                    {kind === "mic" && isActive && (
+                      <div className={styles.micLevelMeter}>
+                        <FontAwesomeIcon icon={faMicrophone} />
+                        <div className={styles.micLevelTrack}>
+                          <div
+                            className={styles.micLevelFill}
+                            style={{ width: `${Math.min(100, studio.micLevel * 300)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
