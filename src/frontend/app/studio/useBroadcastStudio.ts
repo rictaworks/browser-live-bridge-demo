@@ -557,6 +557,12 @@ export function useBroadcastStudio() {
       source.connect(gain);
       gain.connect(ensureAudioProcessor(ctx));
       audioNodesRef.current[kind] = { source, gain };
+      // disconnectAudioSource()側の減算と対になる加算がここに漏れていたため、
+      // liveAudioSourceCountRefが常に0のまま（実機で確認した障害）。0のままだと
+      // startSilenceFallback()の無音生成が実マイク入力と並行して動き続け、
+      // 無音ブロックと実音声ブロックの両方がmediaClock.nextAudioTime()の同じ
+      // タイムラインへ交互に積まれて音声が破綻する（＝音声が届かないように聞こえる）。
+      liveAudioSourceCountRef.current += 1;
     }
 
     function ensureAudioContext(): AudioContext {
