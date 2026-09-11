@@ -137,7 +137,7 @@ describe("BroadcastController", () => {
     expect(controller.state).toBe("ended");
   });
 
-  it("handleTransportOpen(false): 初回接続完了でlive状態になり、設定情報が送信される", async () => {
+  it("handleTransportOpen(false): 初回接続完了でlive状態になる。onResendConfigは再接続専用のため呼ばれない（初回の設定送信はonConfig側の責務）", async () => {
     const deps = makeDeps();
     const timers = makeTimerSpies();
     const onResendConfig = jest.fn();
@@ -147,7 +147,7 @@ describe("BroadcastController", () => {
 
     controller.handleTransportOpen(false);
 
-    expect(onResendConfig).toHaveBeenCalled();
+    expect(onResendConfig).not.toHaveBeenCalled();
     expect(onForceKeyframe).not.toHaveBeenCalled();
     expect(states[states.length - 1]).toBe("live");
   });
@@ -164,7 +164,7 @@ describe("BroadcastController", () => {
     controller.handleTransportClose();
     controller.handleTransportOpen(true);
 
-    expect(onResendConfig).toHaveBeenCalledTimes(2);
+    expect(onResendConfig).toHaveBeenCalledTimes(1);
     expect(onForceKeyframe).toHaveBeenCalledTimes(1);
     expect(events).toContain("reconnected");
     expect(controller.state).toBe("live");

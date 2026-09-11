@@ -149,10 +149,21 @@ export class BroadcastController {
    * 破棄対象外のため必ずここに残っている）の再送は、実際の送信経路を持つ
    * 呼び出し側（app/studio）の責務とする。このクラスはブラウザAPIに依存しない
    * 状態機械であるため、再送そのものではなく「再接続した」という通知のみを
-   * 担う。 */
+   * 担う。
+   *
+   * onResendConfigは名前どおり再接続時専用であり、初回接続(isReconnect=false)
+   * では呼ばない。以前は無条件に呼んでいたが、「初回接続時点ではまだ
+   * configChunk()が存在せず何も送れない」という前提に暗黙に依存していた。
+   * WebSocket接続確立よりエンコーダの初回フレーム処理が先に終わるケースでは
+   * この前提が崩れ、onConfig（エンコーダの初回decoderConfig出力で自然に1回
+   * 送られる、requirements.md 6.7節対応の経路）と競合してvideo_config・
+   * audio_configが初回接続時に二重送信されることが実機で確認された
+   * （中継はconfigフレームをratecontrol.Queueを経由せず直接ローカルingestへ
+   * 書き込むため、二重送信はモニター側の複数回初期化・再生停止という実害に
+   * つながる）。 */
   handleTransportOpen(isReconnect: boolean): void {
-    this.options.onResendConfig?.();
     if (isReconnect) {
+      this.options.onResendConfig?.();
       this.options.onForceKeyframe?.();
       this.emitEvent("reconnected", "再接続しました");
     }
