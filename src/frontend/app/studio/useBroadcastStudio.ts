@@ -144,6 +144,7 @@ export function useBroadcastStudio() {
   const apiClientRef = useRef<BroadcastApiClient | null>(null);
   const controllerRef = useRef<BroadcastController | null>(null);
   const videoEncoderRef = useRef<VideoEncoderPipeline | null>(null);
+  const appliedBitrateKbpsRef = useRef<number | null>(null);
   const audioEncoderRef = useRef<AudioEncoderPipeline | null>(null);
   const audioEncoderClosedRef = useRef<boolean>(false);
   const videoEncoderClosedRef = useRef<boolean>(false);
@@ -305,6 +306,12 @@ export function useBroadcastStudio() {
       const AudioEncoderCtorRef = AudioEncoder as unknown as AudioEncoderCtor;
 
       videoEncoderClosedRef.current = false;
+      // 新しいVideoEncoderPipelineはprofile.videoBitrateInitialKbpsから始まるため、
+      // 前回配信終了時点の適用済みビットレートの記憶をここでリセットする
+      // （リセットしないと、たまたま今回最初のevaluate()の値と一致した場合に
+      // setBitrate()がスキップされ、表示上のtargetBitrateKbpsと実際の
+      // エンコーダ設定が食い違ったままになる）。
+      appliedBitrateKbpsRef.current = null;
       videoEncoderRef.current = new VideoEncoderPipeline({
         profile: DEFAULT_ENCODE_PROFILE,
         VideoEncoderCtor: VideoEncoderCtorRef,
@@ -607,7 +614,19 @@ export function useBroadcastStudio() {
           sendMediaFrame({ type: "audio_config", keyframe: true, timestampUs: audioConfig.timestampUs, body: audioConfig.data });
         }
       },
-      onBitrateChange: (kbps) => setHealth((prev) => ({ ...prev, targetBitrateKbps: kbps })),
+      onBitrateChange: (kbps) => {
+        // 表示の更新だけでなく、実際のエンコーダへも反映する（requirements.md 7節）。
+        // これが漏れていたため、劣化検知・抑制指示はイベントログ上は機能していても
+        // 実際の送出データ量が一切減らず、送出キューが際限なく膨張し続けていた
+        // （実機で滞留時間が20万msを超えるまで成長する障害を確認）。
+        // evaluateTick()は毎秒onBitrateChangeを呼ぶため、値が変化した時のみ
+        // setBitrate()する（無変化での毎秒の再設定・config再送信を避ける）。
+        if (appliedBitrateKbpsRef.current !== kbps) {
+          appliedBitrateKbpsRef.current = kbps;
+          videoEncoderRef.current?.setBitrate(kbps);
+        }
+        setHealth((prev) => ({ ...prev, targetBitrateKbps: kbps }));
+      },
     });
     controllerRef.current = controller;
 
