@@ -593,6 +593,17 @@ export function useBroadcastStudio() {
 
     const manager = new SourceManager(providers, (event) => {
       setSources((prev) => ({ ...prev, [event.kind]: event.state }));
+      // マイク・タブ音声がユーザー操作を介さず喪失した場合（デバイスの物理的な
+      // 切断・OSレベルでの許可取り消し・ブラウザ純正の「共有を停止」操作等）は
+      // SourceManagerが直接track.addEventListener("ended")で検知しここへ
+      // "lost"として届く。detachSource()経由の明示的な解除と違い
+      // disconnectAudioSource()を誰も呼ばないため、liveAudioSourceCountRefが
+      // 減算されないまま（トラック自体は既に終了済みで実音声は流れない）に
+      // なり、無音フォールバックへも切り替わらない実害があった
+      // （requirements.md 8節「マイクの喪失→無音生成に切替え」に反する）。
+      if (event.state === "lost" && (event.kind === "mic" || event.kind === "tab_audio")) {
+        disconnectAudioSource(event.kind);
+      }
       // "requesting"（取得試行中）・"denied"（許可拒否）はUI上のバッジ表示
       // （SOURCE_STATE_LABELS）だけで表現し、イベントログには残さない。
       // 以前はここが漏れて default 節に落ち、取得試行中の一瞬が
