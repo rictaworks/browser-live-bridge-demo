@@ -53,7 +53,6 @@ function makeDeps(overrides: Partial<{ acquireResult: boolean }> = {}) {
   const sendQueue = {
     queueDelayMs: jest.fn().mockReturnValue(0),
     dropNonKeyVideo: jest.fn().mockReturnValue(0),
-    clear: jest.fn(),
   };
   const governor = {
     evaluate: jest.fn().mockReturnValue(2500),
@@ -169,21 +168,6 @@ describe("BroadcastController", () => {
     expect(onForceKeyframe).toHaveBeenCalledTimes(1);
     expect(events).toContain("reconnected");
     expect(controller.state).toBe("live");
-  });
-
-  it("handleTransportOpen(true): 再接続時に送信待ちキューを破棄する（切断中に滞留した音声・キーフレームが再接続後も残り続け滞留時間が高止まりする障害の修正）", async () => {
-    const deps = makeDeps();
-    const timers = makeTimerSpies();
-    const { controller } = makeController(deps, timers);
-    await controller.start({ layoutPreset: "standard", profile: DEFAULT_ENCODE_PROFILE });
-    controller.handleTransportOpen(false);
-
-    expect(deps.sendQueue.clear).not.toHaveBeenCalled();
-
-    controller.handleTransportClose();
-    controller.handleTransportOpen(true);
-
-    expect(deps.sendQueue.clear).toHaveBeenCalledTimes(1);
   });
 
   it("handleTransportClose(): live状態から接続断でreconnecting状態になる", async () => {

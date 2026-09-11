@@ -178,6 +178,25 @@ export function useBroadcastStudio() {
     }
   }, []);
 
+  /** 再接続直後に、切断中SendQueueへ退避されていたフレームを送り届ける。
+   * 音声フレーム・キーフレームは破棄対象外（requirements.md 7節）のため、
+   * 切断中は送信を保留しているだけで、接続復帰後にこれを送らないと
+   * 「滞留時間」（キュー内最古フレームの経過時間）が再接続後も回復せず
+   * 増え続けたまま高止まりする（実機で20万msを超えるまで増え続ける
+   * 障害として確認済み）。SendQueueItem.payloadは送信直前に既に
+   * encodeFrame()済みのバイト列のため、TransportChannel.sendRaw()で
+   * そのまま送る（再エンコード・組み立て直しは行わない）。 */
+  const flushSendQueue = useCallback(() => {
+    const queue = sendQueueRef.current;
+    const transport = transportRef.current;
+    if (!queue || !transport) {
+      return;
+    }
+    for (const item of queue.drainAll()) {
+      transport.sendRaw(item.payload);
+    }
+  }, []);
+
   const drawFrame = useCallback(() => {
     const compositor = compositorRef.current;
     const sourceManager = sourceManagerRef.current;
@@ -592,7 +611,15 @@ export function useBroadcastStudio() {
       url: `${RELAY_WS_URL}/ws/publish`,
       WebSocketCtor: WebSocket as unknown as new (url: string) => never,
       onControl: (message) => controllerRef.current?.handleControl(message),
-      onOpen: (isReconnect) => controllerRef.current?.handleTransportOpen(isReconnect),
+      onOpen: (isReconnect) => {
+        if (isReconnect) {
+          // 古い滞留フレームを先に送り届けてから、handleTransportOpen()が
+          // 発行する新しい基準点（設定情報の再送・強制キーフレーム）を送る
+          // 順序にする（時系列を保つ）。
+          flushSendQueue();
+        }
+        controllerRef.current?.handleTransportOpen(isReconnect);
+      },
       onClose: () => controllerRef.current?.handleTransportClose(),
       onReconnectFailed: () => controllerRef.current?.handleReconnectFailed(),
     });
