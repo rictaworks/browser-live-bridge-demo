@@ -132,6 +132,10 @@ export function useBroadcastStudio() {
   const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveAudioSourceCountRef = useRef(0);
+  // ライブ中盤でのvideo_config/audio_config自動再送を「最初の1回だけ」に
+  // 抑えるためのフラグ。理由はonConfig配線側のコメントを参照。
+  const videoConfigAutoSentRef = useRef(false);
+  const audioConfigAutoSentRef = useRef(false);
 
   const sourceManagerRef = useRef<SourceManager | null>(null);
   const compositorRef = useRef<VideoCompositor | null>(null);
@@ -335,6 +339,10 @@ export function useBroadcastStudio() {
       // setBitrate()がスキップされ、表示上のtargetBitrateKbpsと実際の
       // エンコーダ設定が食い違ったままになる）。
       appliedBitrateKbpsRef.current = null;
+      // 前回配信の「初回config送信済み」記憶が残っていると、新しい配信の
+      // 最初のconfigすら送られなくなる。
+      videoConfigAutoSentRef.current = false;
+      audioConfigAutoSentRef.current = false;
       // sendQueueはhookマウント時に1度だけ生成される参照のため、前回配信の
       // 残留フレーム（切断中に溜まったもの等）が同一ページセッション内の
       // 次の配信へ持ち越されないよう、配信開始のたびに明示的に空にする。
@@ -351,11 +359,28 @@ export function useBroadcastStudio() {
           });
           setHealth((prev) => ({ ...prev, sentBitrateKbps: governorRef.current?.target ?? prev.sentBitrateKbps }));
         },
-        // decoderConfigが届き次第（初回・setBitrateによる再設定後含む）即時送信する。
-        // onResendConfigは再接続時の再送専用で、初回接続時点ではまだconfigChunk()が
-        // 存在せず何も送れないため、これが無いと中継が映像設定を一度も受け取れない
+        // decoderConfigは初回接続時に一度だけ自動送信する。onResendConfigは
+        // 再接続時の再送専用で、初回接続時点ではまだconfigChunk()が存在せず
+        // 何も送れないため、これが無いと中継が映像設定を一度も受け取れない
         // （6.7節「映像設定・音声設定を受け取るまでpublishを開始しないこと」に抵触する）。
+        //
+        // setBitrate()による再設定でもdecoderConfigは再度届くが、これを毎回
+        // 自動送信しないよう1回限りに制限している。中継(session.go)のstateLive
+        // ハンドラはKindVideoConfig/KindAudioConfigを受信すると、通常の映像・
+        // 音声フレームが経由するratecontrol.Queueを迂回してpublisher.WriteVideo/
+        // WriteAudioへ直接書き込む実装になっており、配信中盤でconfigを送るたびに
+        // キュー内の未送出フレームを追い越してローカルingestへ書き込まれ、
+        // モニター側でタイムスタンプ不整合・多重初期化（"Found another
+        // AVCDecoderConfigurationRecord!"等）を起こし再生が止まる障害を実機で
+        // 確認した。適応制御でビットレートが変わるたびに毎回この経路を踏むため、
+        // 数秒以上配信するとほぼ必ず発生する。lastConfigChunk自体は
+        // encoderPipeline.ts側で常に最新へ更新され続けるため、再接続時の
+        // onResendConfigは影響を受けず正しく最新のconfigを送れる。
         onConfig: (chunk) => {
+          if (videoConfigAutoSentRef.current) {
+            return;
+          }
+          videoConfigAutoSentRef.current = true;
           sendMediaFrame({ type: "video_config", keyframe: true, timestampUs: chunk.timestampUs, body: chunk.data });
         },
         onError: (err) => {
@@ -380,7 +405,12 @@ export function useBroadcastStudio() {
             body: chunk.data,
           });
         },
+        // 映像側のonConfigと同じ理由で初回1回のみ自動送信する。
         onConfig: (chunk) => {
+          if (audioConfigAutoSentRef.current) {
+            return;
+          }
+          audioConfigAutoSentRef.current = true;
           sendMediaFrame({ type: "audio_config", keyframe: true, timestampUs: chunk.timestampUs, body: chunk.data });
         },
         onError: (err) => {
