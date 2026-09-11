@@ -10,6 +10,7 @@ package broadcast
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -110,6 +111,14 @@ type Session struct {
 	seenVideo          bool
 	lastAudioTimestamp uint64
 	seenAudio          bool
+
+	// Issue #36: 受信フレーム数の集計用。ブラウザから受信し検証を通過した
+	// （破棄されなかった）映像・音声フレームをTickごとに数え、ログへ出力する。
+	// 「マイクの音が来ない」といった不具合の切り分けを、relayのログを見る
+	// だけで行えるようにする（受信数が0のままなら、原因はrelayより手前
+	// ＝ブラウザ側にあると判断できる）。
+	videoFramesSinceTick uint64
+	audioFramesSinceTick uint64
 
 	// 送出ビットレート計測用（12.1節・16.2節の健全性表示）。DrainOnceで
 	// 実際にpublisherへ書き出したバイト数を積算し、Tickで直前計測からの
@@ -277,6 +286,7 @@ func (s *Session) handleLiveLocked(f protocol.Frame) Action {
 		if err != nil {
 			return ActionNone
 		}
+		s.videoFramesSinceTick++
 		s.queue.Enqueue(ratecontrol.Item{
 			Kind: ratecontrol.ItemVideo, KeyFrame: f.KeyFrame,
 			Timestamp: f.TimestampMicros, EnqueuedAt: s.deps.now(), Payload: encoded,
@@ -290,6 +300,7 @@ func (s *Session) handleLiveLocked(f protocol.Frame) Action {
 		if err != nil {
 			return ActionNone
 		}
+		s.audioFramesSinceTick++
 		// requirements.md 7節: 音声フレームは破棄対象としない。
 		s.queue.Enqueue(ratecontrol.Item{
 			Kind: ratecontrol.ItemAudio, KeyFrame: true,
@@ -416,6 +427,10 @@ func (s *Session) Tick(ctx context.Context, now time.Time) Action {
 	s.lastReportedState = decision.State
 	sentBytes := s.sentBytesSinceTick
 	s.sentBytesSinceTick = 0
+	videoFramesIn := s.videoFramesSinceTick
+	s.videoFramesSinceTick = 0
+	audioFramesIn := s.audioFramesSinceTick
+	s.audioFramesSinceTick = 0
 	elapsed := now.Sub(s.lastTickAt)
 	s.lastTickAt = now
 	s.mu.Unlock()
@@ -424,6 +439,11 @@ func (s *Session) Tick(ctx context.Context, now time.Time) Action {
 	if elapsed > 0 && sentBytes > 0 {
 		sentBitrateKbps = int(float64(sentBytes*8) / 1000 / elapsed.Seconds())
 	}
+
+	// Issue #36: railway logs等から直接「音声/映像が届いているか」を確認できるようにする。
+	log.Printf("relay tick broadcast_id=%s video_frames_in=%d audio_frames_in=%d queue_delay_ms=%d sent_bitrate_kbps=%d state=%s",
+		broadcastID, videoFramesIn, audioFramesIn, delay.Milliseconds(), sentBitrateKbps, decision.State.String())
+
 	if stateChanged {
 		detail := fmt.Sprintf("state=%s queue_delay_ms=%d", decision.State.String(), delay.Milliseconds())
 		go func() {

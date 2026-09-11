@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -677,6 +679,68 @@ func TestTickTransitionsToDegradedAndRequestsReconnect(t *testing.T) {
 	// 劣化継続による強制終了後は、以後のTickは何もしない。
 	if action3 := session.Tick(context.Background(), t2.Add(time.Second)); action3 != ActionNone {
 		t.Fatalf("Tick after session ended = %v, want ActionNone", action3)
+	}
+}
+
+// Issue #36: relayが受信した映像・音声フレーム数を1tickごとにログへ出力し、
+// railway logs等から「マイクの音が届いているか」を直接確認できるようにする。
+func TestTickLogsIngressFrameCountsSinceLastTick(t *testing.T) {
+	fixedNow := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	backend := newFakeBackend()
+	backend.verifyResult = backendclient.VerifyResult{Valid: true, BroadcastID: "b-log-1"}
+	pub := &fakePublisher{}
+	fw := &fakeFrameWriter{}
+	deps := Deps{
+		Backend:    backend,
+		Now:        func() time.Time { return fixedNow },
+		DialIngest: func(addr, streamKey string) (Publisher, error) { return pub, nil },
+	}
+	session := NewSession(deps, fw)
+	mustNone(t, session.HandleFrame(context.Background(), startNoticeFrame("s1", "t1", "p")))
+	mustNone(t, session.HandleFrame(context.Background(), videoConfigFrame([]byte{0x01})))
+	mustNone(t, session.HandleFrame(context.Background(), audioConfigFrame([]byte{0x11, 0x90})))
+
+	// 映像2本・音声3本を受信させる。
+	mustNone(t, session.HandleFrame(context.Background(), videoFrame(1, true, []byte("v1"))))
+	mustNone(t, session.HandleFrame(context.Background(), videoFrame(2, false, []byte("v2"))))
+	mustNone(t, session.HandleFrame(context.Background(), audioFrame(1, []byte("a1"))))
+	mustNone(t, session.HandleFrame(context.Background(), audioFrame(2, []byte("a2"))))
+	mustNone(t, session.HandleFrame(context.Background(), audioFrame(3, []byte("a3"))))
+
+	var logBuf strings.Builder
+	origOutput := log.Writer()
+	origFlags := log.Flags()
+	log.SetOutput(&logBuf)
+	log.SetFlags(0)
+	defer func() {
+		log.SetOutput(origOutput)
+		log.SetFlags(origFlags)
+	}()
+
+	t1 := fixedNow.Add(1 * time.Second)
+	mustNone(t, session.Tick(context.Background(), t1))
+	mustRecvHealth(t, backend.healthCh)
+
+	out := logBuf.String()
+	if !strings.Contains(out, "b-log-1") {
+		t.Errorf("log output missing broadcastID: %q", out)
+	}
+	if !strings.Contains(out, "video_frames_in=2") {
+		t.Errorf("log output missing video_frames_in=2: %q", out)
+	}
+	if !strings.Contains(out, "audio_frames_in=3") {
+		t.Errorf("log output missing audio_frames_in=3: %q", out)
+	}
+
+	// 次のtick（受信なし）ではカウンタが0にリセットされること。
+	logBuf.Reset()
+	t2 := t1.Add(1 * time.Second)
+	mustNone(t, session.Tick(context.Background(), t2))
+	mustRecvHealth(t, backend.healthCh)
+
+	out2 := logBuf.String()
+	if !strings.Contains(out2, "video_frames_in=0") || !strings.Contains(out2, "audio_frames_in=0") {
+		t.Errorf("expected reset counters on 2nd tick, got: %q", out2)
 	}
 }
 
