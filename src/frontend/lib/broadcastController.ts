@@ -18,7 +18,7 @@ import type { BroadcastEvent, BroadcastState, EncodeProfile, EventType } from ".
 type ApiClientDeps = Pick<BroadcastApiClient, "createBroadcast" | "stopBroadcast" | "lockHeartbeat">;
 type TabLockDeps = Pick<TabLockGuard, "acquire" | "heartbeat" | "release">;
 type TransportDeps = Pick<TransportChannel, "connect" | "close" | "sendControl" | "reconnectNow">;
-type SendQueueDeps = Pick<SendQueue, "queueDelayMs" | "dropNonKeyVideo">;
+type SendQueueDeps = Pick<SendQueue, "queueDelayMs" | "dropNonKeyVideo" | "clear">;
 type GovernorDeps = Pick<BitrateGovernor, "evaluate" | "applyThrottle"> & { target: number };
 
 export interface BroadcastControllerOptions {
@@ -148,6 +148,14 @@ export class BroadcastController {
   handleTransportOpen(isReconnect: boolean): void {
     this.options.onResendConfig?.();
     if (isReconnect) {
+      // 切断中に送信できず滞留したフレーム（音声・キーフレームは7節により
+      // 破棄対象外のため、切断が続く限りキューに残り続ける）は、再接続を
+      // 機に破棄する。直後にonForceKeyframe/onResendConfigで新しい基準点を
+      // 発行するため、古いフレームを送り直す意味がない上、送り直すと
+      // 「滞留時間」が再接続後もキュー内の最古フレーム基準で高止まりし続け、
+      // 回復したように見えない実害があった（実機で滞留時間が20万msを
+      // 超えるまで増え続ける障害の一因）。
+      this.options.sendQueue.clear();
       this.options.onForceKeyframe?.();
       this.emitEvent("reconnected", "再接続しました");
     }

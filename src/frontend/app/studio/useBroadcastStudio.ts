@@ -312,6 +312,10 @@ export function useBroadcastStudio() {
       // setBitrate()がスキップされ、表示上のtargetBitrateKbpsと実際の
       // エンコーダ設定が食い違ったままになる）。
       appliedBitrateKbpsRef.current = null;
+      // sendQueueはhookマウント時に1度だけ生成される参照のため、前回配信の
+      // 残留フレーム（切断中に溜まったもの等）が同一ページセッション内の
+      // 次の配信へ持ち越されないよう、配信開始のたびに明示的に空にする。
+      sendQueueRef.current?.clear();
       videoEncoderRef.current = new VideoEncoderPipeline({
         profile: DEFAULT_ENCODE_PROFILE,
         VideoEncoderCtor: VideoEncoderCtorRef,
